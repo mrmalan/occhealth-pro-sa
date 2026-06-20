@@ -1058,8 +1058,77 @@ const FitnessCerts = () => {
 };
 
 const IODRegister = () => {
-  const { persons, employers } = useData();
+  const { persons, employers, db, refreshData } = useData();
   const [generatingId, setGeneratingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [liveIODs, setLiveIODs] = useState(null);
+
+  const EMPTY_IOD = {
+    person_id: "", employer_id: "",
+    incident_at: new Date().toISOString().slice(0,16),
+    incident_type: "injury",
+    severity: "medical_treatment",
+    mechanism: "",
+    body_part: "",
+    narrative: "",
+    first_aid_given: [],
+    site: "",
+  };
+  const [form, setForm] = useState(EMPTY_IOD);
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // When person changes, auto-fill employer
+  const selectedPerson = persons.find(p => p.id === form.person_id);
+  const selectedEmployer = employers.find(e => e.id === (form.employer_id || selectedPerson?.employer_id));
+
+  const handlePersonChange = (personId) => {
+    const p = persons.find(x => x.id === personId);
+    setForm(f => ({ ...f, person_id: personId, employer_id: p?.employer_id || "", site: p?.site || "" }));
+  };
+
+  const toggleFirstAid = (item) => {
+    setForm(f => ({
+      ...f,
+      first_aid_given: f.first_aid_given.includes(item)
+        ? f.first_aid_given.filter(x => x !== item)
+        : [...f.first_aid_given, item],
+    }));
+  };
+
+  const saveIOD = async () => {
+    if (!form.person_id || !form.narrative) return;
+    setSaving(true);
+    const record = {
+      person_id: form.person_id,
+      employer_id: form.employer_id || selectedPerson?.employer_id || "",
+      incident_at: new Date(form.incident_at).toISOString(),
+      client_timestamp: new Date().toISOString(),
+      incident_type: form.incident_type,
+      severity: form.severity,
+      mechanism: form.mechanism,
+      body_part: form.body_part,
+      narrative: form.narrative,
+      first_aid_given: form.first_aid_given,
+      created_at: new Date().toISOString(),
+    };
+    if (form.site) record.site = form.site;
+
+    let saved = { ...record, id: crypto.randomUUID() };
+    if (!USE_MOCK && db) {
+      const { data, error } = await db.from("iod_incident").insert(record);
+      if (!error && data?.[0]) saved = data[0];
+    }
+    setLiveIODs(prev => [saved, ...(prev || MOCK_IOD)]);
+    setForm(EMPTY_IOD);
+    setShowForm(false);
+    setSaving(false);
+  };
+
+  const iods = liveIODs || MOCK_IOD;
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
+  const labelStyle = { fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textTert, marginBottom: 4, fontWeight: 500, display: "block" };
+  const FIRST_AID_OPTIONS = ["Wound cleaned and dressed","Ice pack applied","Immobilisation / splinting","CPR administered","Oxygen administered","Referred to hospital","Other"];
 
   const generateWCL2 = async (iod) => {
     setGeneratingId(iod.id + "_wcl2");
@@ -1111,9 +1180,81 @@ const IODRegister = () => {
   <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
       <div style={{ fontSize: 18, fontWeight: 500 }}>IOD register</div>
-      <Btn size="sm">+ Log IOD</Btn>
+      <Btn size="sm" onClick={() => { setForm(EMPTY_IOD); setShowForm(true); }}>+ Log IOD</Btn>
     </div>
-    {MOCK_IOD.map(iod => {
+
+    {showForm && (
+      <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
+        <SectionTitle>Log injury on duty</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={labelStyle}>Employee *</label>
+            <select style={inputStyle} value={form.person_id} onChange={e => handlePersonChange(e.target.value)}>
+              <option value="">Select employee...</option>
+              {persons.map(p => {
+                const emp = employers.find(e => e.id === p.employer_id);
+                return <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {emp?.name}</option>;
+              })}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Date & time of incident *</label>
+            <input type="datetime-local" style={inputStyle} value={form.incident_at} onChange={e => setF("incident_at", e.target.value)} />
+          </div>
+          <div>
+            <label style={labelStyle}>Incident type</label>
+            <select style={inputStyle} value={form.incident_type} onChange={e => setF("incident_type", e.target.value)}>
+              <option value="injury">Injury</option>
+              <option value="occupational_disease">Occupational disease</option>
+              <option value="near_miss">Near miss</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Severity</label>
+            <select style={inputStyle} value={form.severity} onChange={e => setF("severity", e.target.value)}>
+              <option value="first_aid">First aid only</option>
+              <option value="medical_treatment">Medical treatment</option>
+              <option value="lost_time">Lost time injury</option>
+              <option value="fatality">Fatality</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Part of body injured</label>
+            <input style={inputStyle} value={form.body_part} onChange={e => setF("body_part", e.target.value)} placeholder="e.g. Right knee" />
+          </div>
+          <div>
+            <label style={labelStyle}>Mechanism / how it happened</label>
+            <input style={inputStyle} value={form.mechanism} onChange={e => setF("mechanism", e.target.value)} placeholder="e.g. Slip and fall on wet surface" />
+          </div>
+          <div>
+            <label style={labelStyle}>Site / location</label>
+            <input style={inputStyle} value={form.site} onChange={e => setF("site", e.target.value)} placeholder={selectedEmployer?.name || "Site name"} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Narrative — what happened? (for W.Cl.2 Section 5) *</label>
+          <textarea style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} rows={3} value={form.narrative} onChange={e => setF("narrative", e.target.value)} placeholder="Describe the sequence of events leading to the injury..." />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>First aid given</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {FIRST_AID_OPTIONS.map(opt => (
+              <label key={opt} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer", background: form.first_aid_given.includes(opt) ? C.tealLight : C.bgSub, border: `1px solid ${form.first_aid_given.includes(opt) ? C.tealMid : C.border}`, borderRadius: 5, padding: "4px 8px", color: form.first_aid_given.includes(opt) ? C.teal : C.text }}>
+                <input type="checkbox" checked={form.first_aid_given.includes(opt)} onChange={() => toggleFirstAid(opt)} style={{ accentColor: C.teal }} />
+                {opt}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn onClick={saveIOD} disabled={saving || !form.person_id || !form.narrative}>{saving ? "Saving..." : "Save IOD"}</Btn>
+          <Btn variant="secondary" onClick={() => setShowForm(false)}>Cancel</Btn>
+          {(!form.person_id || !form.narrative) && <span style={{ fontSize: 12, color: C.textTert, alignSelf: "center" }}>Employee and narrative required</span>}
+        </div>
+      </Card>
+    )}
+
+    {iods.map(iod => {
       const person = persons.find(p => p.id === iod.person_id);
       const employer = employers.find(e => e.id === iod.employer_id);
       return (
@@ -1183,8 +1324,87 @@ const IODRegister = () => {
 };
 
 const DrugTesting = () => {
-  const { persons, employers } = useData();
+  const { persons, employers, db } = useData();
   const [generatingId, setGeneratingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [liveTests, setLiveTests] = useState(null);
+
+  const SUBSTANCES = ["Cannabis","Cocaine","Opiates","Amphetamines","Benzodiazepines","Methamphetamine","Alcohol"];
+  const EMPTY_TEST = {
+    person_id: "",
+    tested_at: new Date().toISOString().slice(0,16),
+    test_reason: "random",
+    specimen_type: "urine",
+    device_brand: "",
+    device_lot: "",
+    substances_tested: ["Cannabis","Cocaine","Opiates","Amphetamines"],
+    substances_positive: [],
+    result: "negative",
+    refusal: false,
+    refusal_reason: "",
+    consent_given: true,
+    witness_name: "",
+    witness_title: "Supervisor",
+    notes: "",
+  };
+  const [form, setForm] = useState(EMPTY_TEST);
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const toggleSubstance = (sub) => setForm(f => ({
+    ...f,
+    substances_tested: f.substances_tested.includes(sub)
+      ? f.substances_tested.filter(x => x !== sub)
+      : [...f.substances_tested, sub],
+    substances_positive: f.substances_positive.filter(x => f.substances_tested.includes(x)),
+  }));
+
+  const togglePositive = (sub) => setForm(f => ({
+    ...f,
+    substances_positive: f.substances_positive.includes(sub)
+      ? f.substances_positive.filter(x => x !== sub)
+      : [...f.substances_positive, sub],
+    result: f.substances_positive.includes(sub) && f.substances_positive.length === 1 ? "negative" : "positive",
+  }));
+
+  const selectedPerson = persons.find(p => p.id === form.person_id);
+  const selectedEmployer = employers.find(e => e.id === selectedPerson?.employer_id);
+
+  const saveTest = async () => {
+    if (!form.person_id) return;
+    setSaving(true);
+    const record = {
+      person_id: form.person_id,
+      employer_id: selectedPerson?.employer_id || "",
+      tested_at: new Date(form.tested_at).toISOString(),
+      client_timestamp: new Date().toISOString(),
+      test_reason: form.test_reason,
+      specimen_type: form.specimen_type,
+      device_brand: form.device_brand || null,
+      device_lot: form.device_lot || null,
+      substances_tested: form.substances_tested,
+      substances_positive: form.substances_positive,
+      result: form.refusal ? "invalid" : (form.substances_positive.length > 0 ? "positive" : "negative"),
+      consent_given: form.consent_given,
+      refusal: form.refusal,
+      refusal_reason: form.refusal_reason || null,
+      created_at: new Date().toISOString(),
+    };
+
+    let saved = { ...record, id: crypto.randomUUID() };
+    if (!USE_MOCK && db) {
+      const { data, error } = await db.from("drug_test").insert(record);
+      if (!error && data?.[0]) saved = data[0];
+    }
+    setLiveTests(prev => [saved, ...(prev || MOCK_DRUG_TESTS)]);
+    setForm(EMPTY_TEST);
+    setShowForm(false);
+    setSaving(false);
+  };
+
+  const tests = liveTests || MOCK_DRUG_TESTS;
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
+  const labelStyle = { fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textTert, marginBottom: 4, fontWeight: 500, display: "block" };
 
   const printCert = async (dt) => {
     setGeneratingId(dt.id);
@@ -1237,9 +1457,118 @@ const DrugTesting = () => {
   <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
       <div style={{ fontSize: 18, fontWeight: 500 }}>Drug & alcohol testing</div>
-      <Btn size="sm">+ New test</Btn>
+      <Btn size="sm" onClick={() => { setForm(EMPTY_TEST); setShowForm(true); }}>+ New test</Btn>
     </div>
-    {MOCK_DRUG_TESTS.map(dt => {
+
+    {showForm && (
+      <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
+        <SectionTitle>New drug & alcohol test</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={labelStyle}>Employee *</label>
+            <select style={inputStyle} value={form.person_id} onChange={e => setF("person_id", e.target.value)}>
+              <option value="">Select employee...</option>
+              {persons.map(p => {
+                const emp = employers.find(e => e.id === p.employer_id);
+                return <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {emp?.name}</option>;
+              })}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Date & time of test</label>
+            <input type="datetime-local" style={inputStyle} value={form.tested_at} onChange={e => setF("tested_at", e.target.value)} />
+          </div>
+          <div>
+            <label style={labelStyle}>Reason for test</label>
+            <select style={inputStyle} value={form.test_reason} onChange={e => setF("test_reason", e.target.value)}>
+              <option value="random">Random</option>
+              <option value="post_incident">Post-incident</option>
+              <option value="reasonable_suspicion">Reasonable suspicion</option>
+              <option value="pre_employment">Pre-employment</option>
+              <option value="return_to_duty">Return to duty</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Specimen type</label>
+            <select style={inputStyle} value={form.specimen_type} onChange={e => setF("specimen_type", e.target.value)}>
+              <option value="urine">Urine</option>
+              <option value="breath">Breath</option>
+              <option value="oral_fluid">Oral fluid</option>
+              <option value="blood">Blood</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Device brand</label>
+            <input style={inputStyle} value={form.device_brand} onChange={e => setF("device_brand", e.target.value)} placeholder="e.g. DrugCheck 3000" />
+          </div>
+          <div>
+            <label style={labelStyle}>Device lot number</label>
+            <input style={inputStyle} value={form.device_lot} onChange={e => setF("device_lot", e.target.value)} placeholder="e.g. DC-2026-0441" />
+          </div>
+          <div>
+            <label style={labelStyle}>Witness name</label>
+            <input style={inputStyle} value={form.witness_name} onChange={e => setF("witness_name", e.target.value)} placeholder="Supervisor or HR representative" />
+          </div>
+          <div>
+            <label style={labelStyle}>Witness designation</label>
+            <input style={inputStyle} value={form.witness_title} onChange={e => setF("witness_title", e.target.value)} placeholder="e.g. Site Safety Officer" />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Substances tested (tick all tested)</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SUBSTANCES.map(sub => (
+              <label key={sub} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer", background: form.substances_tested.includes(sub) ? C.tealLight : C.bgSub, border: `1px solid ${form.substances_tested.includes(sub) ? C.tealMid : C.border}`, borderRadius: 5, padding: "4px 8px", color: form.substances_tested.includes(sub) ? C.teal : C.text }}>
+                <input type="checkbox" checked={form.substances_tested.includes(sub)} onChange={() => toggleSubstance(sub)} style={{ accentColor: C.teal }} />
+                {sub}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {!form.refusal && form.substances_tested.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>Positive results (tick any positives)</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {form.substances_tested.map(sub => (
+                <label key={sub} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer", background: form.substances_positive.includes(sub) ? "#FEF2F2" : C.bgSub, border: `1px solid ${form.substances_positive.includes(sub) ? "#FECACA" : C.border}`, borderRadius: 5, padding: "4px 8px", color: form.substances_positive.includes(sub) ? "#DC2626" : C.text }}>
+                  <input type="checkbox" checked={form.substances_positive.includes(sub)} onChange={() => togglePositive(sub)} />
+                  {sub}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", padding: "8px 12px", borderRadius: 7, background: form.consent_given ? C.tealLight : "#FEF2F2", border: `1px solid ${form.consent_given ? C.tealMid : "#FECACA"}` }}>
+            <input type="checkbox" checked={form.consent_given} onChange={e => setF("consent_given", e.target.checked)} style={{ accentColor: C.teal, width: 16, height: 16 }} />
+            <span style={{ color: form.consent_given ? C.teal : "#DC2626", fontWeight: 500 }}>Informed consent obtained</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", padding: "8px 12px", borderRadius: 7, background: form.refusal ? "#FEF2F2" : C.bgSub, border: `1px solid ${form.refusal ? "#FECACA" : C.border}` }}>
+            <input type="checkbox" checked={form.refusal} onChange={e => setF("refusal", e.target.checked)} />
+            <span style={{ color: form.refusal ? "#DC2626" : C.text, fontWeight: form.refusal ? 500 : 400 }}>Employee refused to test</span>
+          </label>
+        </div>
+
+        {form.refusal && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>Reason for refusal</label>
+            <input style={inputStyle} value={form.refusal_reason} onChange={e => setF("refusal_reason", e.target.value)} placeholder="Employee's stated reason for refusal..." />
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Btn onClick={saveTest} disabled={saving || !form.person_id}>{saving ? "Saving..." : "Save test record"}</Btn>
+          <Btn variant="secondary" onClick={() => setShowForm(false)}>Cancel</Btn>
+          {form.substances_positive.length > 0 && <Badge color="red">⚠ {form.substances_positive.length} positive result{form.substances_positive.length > 1 ? "s" : ""}</Badge>}
+          {form.refusal && <Badge color="gray">Refusal logged</Badge>}
+        </div>
+      </Card>
+    )}
+
+    {tests.map(dt => {
       const person = persons.find(p => p.id === dt.person_id);
       const employer = employers.find(e => e.id === dt.employer_id);
       return (
