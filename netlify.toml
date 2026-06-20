@@ -17,3 +17,7 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Nightly surveillance scheduler — 01:00 SAST = 23:00 UTC
+[functions."surveillance-scheduler"]
+  schedule = "0 23 * * *"

@@ -1572,6 +1572,25 @@ const Surveillance = () => {
   // Enrolled person ids per profile
   const enrolledFor = (profileId) => enrolments.filter(e => e.hazard_profile_id === profileId).map(e => e.person_id);
 
+  // Scheduler — manual trigger for testing
+  const [schedulerRunning, setSchedulerRunning] = useState(false);
+  const [schedulerResult, setSchedulerResult] = useState(null);
+
+  const runScheduler = async () => {
+    setSchedulerRunning(true);
+    setSchedulerResult(null);
+    try {
+      const r = await fetch("/.netlify/functions/surveillance-scheduler", { method: "POST" });
+      const data = await r.json();
+      setSchedulerResult(data);
+      // Reload events after scheduler run
+      await loadSurveillanceData();
+    } catch(e) {
+      setSchedulerResult({ error: e.message });
+    }
+    setSchedulerRunning(false);
+  };
+
   const TAB_STYLE = (active) => ({
     padding: "6px 14px", fontSize: 13, fontWeight: active ? 600 : 400,
     color: active ? C.teal : C.textSub, background: "none", border: "none",
@@ -1581,10 +1600,23 @@ const Surveillance = () => {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
         <div style={{ fontSize: 18, fontWeight: 500 }}>Health surveillance</div>
-        <Btn size="sm" onClick={() => setShowNewProfile(true)}>+ New hazard profile</Btn>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn size="sm" variant="secondary" onClick={runScheduler} disabled={schedulerRunning}>
+            {schedulerRunning ? "Running..." : "⟳ Run scheduler"}
+          </Btn>
+          <Btn size="sm" onClick={() => setShowNewProfile(true)}>+ New hazard profile</Btn>
+        </div>
       </div>
+      {schedulerResult && (
+        <div style={{ background: schedulerResult.error ? C.redLight : C.tealLight, border: `1px solid ${schedulerResult.error ? C.red : C.tealMid}`, borderRadius: 8, padding: "8px 12px", marginBottom: "1rem", fontSize: 12, color: schedulerResult.error ? C.red : C.teal }}>
+          {schedulerResult.error
+            ? `Scheduler error: ${schedulerResult.error}`
+            : `✓ Scheduler ran — ${schedulerResult.marked_overdue ?? 0} marked overdue, ${schedulerResult.next_cycles_generated ?? 0} next cycles generated`
+          }
+        </div>
+      )}
 
       {/* KPI row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: "1.25rem" }}>
