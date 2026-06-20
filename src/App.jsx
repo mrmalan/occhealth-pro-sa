@@ -1827,6 +1827,8 @@ const IODRegister = () => {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [liveIODs, setLiveIODs] = useState(null);
+  const [coidaClaims, setCoidaClaims] = useState({}); // keyed by iod_incident_id → claim row
+  const [claimSaving, setClaimSaving] = useState(null); // iod.id being saved
 
   const EMPTY_IOD = {
     person_id: "", employer_id: "",
@@ -1889,13 +1891,63 @@ const IODRegister = () => {
     setSaving(false);
   };
 
-  // Load live IOD data from Supabase on mount
+  // Load live IOD data + COIDA claims from Supabase on mount
   useEffect(() => {
     if (!db || USE_MOCK) return;
     db.from("iod_incident").select("order=incident_at.desc&limit=200").then(res => {
       if (res.data?.length) setLiveIODs(res.data);
     }).catch(() => {});
+    db.from("coida_claim").select("order=created_at.desc&limit=500").then(res => {
+      if (res.data?.length) {
+        const map = {};
+        res.data.forEach(c => { map[c.iod_incident_id] = c; });
+        setCoidaClaims(map);
+      }
+    }).catch(() => {});
   }, [db]);
+
+  const CLAIM_STATUSES = [
+    { value: "draft",        label: "Draft",        color: "gray" },
+    { value: "submitted",    label: "Submitted",    color: "amber" },
+    { value: "acknowledged", label: "Acknowledged", color: "amber" },
+    { value: "assessed",     label: "Assessed",     color: "amber" },
+    { value: "approved",     label: "Approved",     color: "teal" },
+    { value: "paid",         label: "Paid",         color: "teal" },
+    { value: "disputed",     label: "Disputed",     color: "red" },
+    { value: "rejected",     label: "Rejected",     color: "red" },
+  ];
+
+  const INSURER_LABELS = { compensation_fund: "Compensation Fund", rma: "RMA", fem: "FEM" };
+
+  const createOrUpdateClaim = async (iod, newStatus) => {
+    setClaimSaving(iod.id);
+    const employer = employers.find(e => e.id === iod.employer_id);
+    const existing = coidaClaims[iod.id];
+    const now = new Date().toISOString();
+
+    const payload = existing
+      ? { status: newStatus, ...(newStatus === "submitted" ? { submitted_at: now } : {}), ...(newStatus === "acknowledged" ? { acknowledged_at: now } : {}), ...(newStatus === "assessed" ? { assessed_at: now } : {}) }
+      : { iod_incident_id: iod.id, insurer: employer?.coida_insurer || "compensation_fund", status: newStatus, created_at: now, ...(newStatus === "submitted" ? { submitted_at: now } : {}) };
+
+    try {
+      if (!USE_MOCK && db) {
+        if (existing) {
+          await db.from("coida_claim").update(payload).eq("id", existing.id);
+          setCoidaClaims(prev => ({ ...prev, [iod.id]: { ...existing, ...payload } }));
+        } else {
+          const res = await db.from("coida_claim").insert(payload).select();
+          if (res.data?.[0]) setCoidaClaims(prev => ({ ...prev, [iod.id]: res.data[0] }));
+        }
+      } else {
+        // Demo mode optimistic update
+        const mockClaim = existing
+          ? { ...existing, ...payload }
+          : { ...payload, id: `claim_${Date.now()}` };
+        setCoidaClaims(prev => ({ ...prev, [iod.id]: mockClaim }));
+      }
+    } catch(e) { console.warn("Claim save error", e); }
+    setClaimSaving(null);
+  };
 
   const iods = liveIODs ?? MOCK_IOD;
   const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
@@ -2050,6 +2102,22 @@ const IODRegister = () => {
                 const person = persons.find(p => p.id === iod.person_id);
                 const employer = employers.find(e => e.id === iod.employer_id);
                 const incidentDate = iod.incident_at ? new Date(iod.incident_at) : new Date();
+
+                // Look up the most recent signed clinical encounter for this person
+                // to pre-fill the medical findings section of W.Cl.4
+                let linkedEncounter = null;
+                if (!USE_MOCK && db) {
+                  try {
+                    const encRes = await db.from("clinical_encounter").select(
+                      `person_id=eq.${iod.person_id}&signed_at=not.is.null&order=signed_at.desc&limit=1`
+                    );
+                    if (encRes.data?.[0]) linkedEncounter = encRes.data[0];
+                  } catch(e) { console.warn("Encounter lookup failed", e); }
+                } else {
+                  // Demo mode: try to find in local encounters state
+                  linkedEncounter = encounters?.find(e => e.person_id === iod.person_id && e.signed_at) || null;
+                }
+
                 const payload = {
                   employer_name: employer?.name || "",
                   coida_ref: employer?.coida_ref || "",
@@ -2062,17 +2130,23 @@ const IODRegister = () => {
                   gender: person?.gender || "",
                   site: person?.site || employer?.name || "",
                   incident_date: incidentDate.toISOString().slice(0,10),
+                  examination_date: linkedEncounter?.encounter_at
+                    ? new Date(linkedEncounter.encounter_at).toISOString().slice(0,10)
+                    : incidentDate.toISOString().slice(0,10),
                   body_part: iod.body_part || "",
                   mechanism: iod.mechanism || "",
                   narrative: iod.narrative || "",
-                  subjective: iod.narrative || "",
-                  objective: "",
-                  assessment: "",
-                  plan: "",
-                  vitals: null,
+                  // Pull clinical content from linked encounter if available
+                  subjective: linkedEncounter?.subjective || iod.narrative || "",
+                  objective: linkedEncounter?.objective || "",
+                  assessment: linkedEncounter?.assessment || "",
+                  plan: linkedEncounter?.plan || "",
+                  vitals: linkedEncounter?.vitals || null,
                   work_related: "yes",
                   work_fitness: iod.severity === "lost_time" ? "unfit" : "light",
-                  signed_at: new Date().toISOString().slice(0,10),
+                  signed_at: linkedEncounter?.signed_at
+                    ? new Date(linkedEncounter.signed_at).toISOString().slice(0,10)
+                    : new Date().toISOString().slice(0,10),
                 };
                 const res = await fetch("/.netlify/functions/wcl4", {
                   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -2087,6 +2161,16 @@ const IODRegister = () => {
             }} disabled={generatingId === iod.id + "_wcl4"}>
               {generatingId === iod.id + "_wcl4" ? "Generating..." : "Generate W.Cl.4"}
             </Btn>
+            {nextStatus && (
+              <Btn size="sm" onClick={() => createOrUpdateClaim(iod, nextStatus)} disabled={claimSaving === iod.id}>
+                {claimSaving === iod.id ? "Saving..." : nextLabel}
+              </Btn>
+            )}
+            {(claim?.status === "disputed" || claim?.status === "rejected") && (
+              <Btn size="sm" variant="secondary" onClick={() => createOrUpdateClaim(iod, "submitted")} disabled={claimSaving === iod.id}>
+                Resubmit
+              </Btn>
+            )}
           </div>
         </Card>
       );
