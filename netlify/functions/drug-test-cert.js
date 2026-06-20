@@ -182,23 +182,25 @@ async function generateDrugTestCert(data) {
       { label: "SANC number",          value: data.sanc_number || "",       flex: 1 },
     ]);
 
-    // Declaration text
-    doc.rect(m, y, W - 2*m, 8*MM).fill(FIELD_BG);
-    doc.fillColor(DARK).font("Helvetica").fontSize(7.5)
-       .text("I certify that the specimen was collected and tested in accordance with the applicable chain-of-custody procedures and the result stated above is accurate to the best of my knowledge.", m + 2*MM, y + 1.5*MM, { width: W - 2*m - 4*MM, lineBreak: false });
-    y += 11*MM;
+    // Declaration text — BEFORE signature lines
+    doc.rect(m, y, W - 2*m, 10*MM).fill(FIELD_BG);
+    doc.rect(m, y, W - 2*m, 10*MM).strokeColor("#E5E7EB").lineWidth(0.3).stroke();
+    doc.fillColor(DARK).font("Helvetica").fontSize(8)
+       .text("I certify that the specimen was collected and tested in accordance with chain-of-custody procedures", m + 2*MM, y + 1.5*MM, { lineBreak: false });
+    doc.text("and that the result stated above is accurate to the best of my knowledge.", m + 2*MM, y + 6*MM, { lineBreak: false });
+    y += 15*MM;
 
-    // Signatures
-    y += 2*MM;
+    // Signature lines — AFTER declaration with clear space
+    y += 6*MM;
     const sigColW = (W - 2*m) / 3;
     ["Collector signature", "Witness signature", "Employee signature"].forEach((label, i) => {
       const x = m + i * sigColW;
-      doc.moveTo(x + 2*MM, y + 10*MM).lineTo(x + sigColW - 4*MM, y + 10*MM)
+      doc.moveTo(x + 2*MM, y).lineTo(x + sigColW - 4*MM, y)
          .strokeColor(DARK).lineWidth(0.5).stroke();
-      doc.fillColor(GRAY).font("Helvetica").fontSize(6.5)
-         .text(label, x + 2*MM, y + 12*MM, { lineBreak: false });
+      doc.fillColor(GRAY).font("Helvetica").fontSize(7)
+         .text(label, x + 2*MM, y + 2*MM, { lineBreak: false });
     });
-    y += 18*MM;
+    y += 14*MM;
 
     // CCMA note
     doc.rect(m, y, W - 2*m, 8*MM).fill(TEAL_LIGHT);
