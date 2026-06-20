@@ -104,8 +104,8 @@ const Badge = ({ children, color = "teal" }) => {
   );
 };
 
-const Card = ({ children, style = {} }) => (
-  <div style={{ background: C.bgCard, border: `0.5px solid ${C.border}`, borderRadius: 10, padding: "1rem 1.25rem", ...style }}>
+const Card = ({ children, style = {}, ...rest }) => (
+  <div style={{ background: C.bgCard, border: `0.5px solid ${C.border}`, borderRadius: 10, padding: "1rem 1.25rem", ...style }} {...rest}>
     {children}
   </div>
 );
