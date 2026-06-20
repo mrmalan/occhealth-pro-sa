@@ -2990,6 +2990,596 @@ const EmployerPortal = ({ session }) => {
   );
 };
 
+// ─── FINANCE & BILLING ────────────────────────────────────────────────────────
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const downloadCSV = (rows, filename) => {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '\\"')}""`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+};
+
+const formatDateZA = (d) => {
+  if (!d) return "";
+  const dt = new Date(d);
+  return `${String(dt.getDate()).padStart(2,"0")}/${String(dt.getMonth()+1).padStart(2,"0")}/${dt.getFullYear()}`;
+};
+
+// ── WhatsApp message templates ────────────────────────────────────────────────
+const WA_TEMPLATES = {
+  surveillance_due: (name, testType, date, practice) =>
+    `Hi ${name}, this is a reminder from ${practice}. Your ${testType} health surveillance is due on ${date}. Please report to the clinic on this date. Reply STOP to opt out.`,
+  cert_expiring: (name, date, practice) =>
+    `Hi ${name}, your fitness certificate issued by ${practice} expires on ${date}. Please contact us to schedule your renewal assessment. Reply STOP to opt out.`,
+  iod_followup: (name, incidentDate, practice) =>
+    `Hi ${name}, following your injury on ${incidentDate}, ${practice} would like to schedule a follow-up assessment. Please contact us at your earliest convenience.`,
+  cert_issued: (name, status, validUntil, practice) =>
+    `Hi ${name}, your fitness assessment with ${practice} is complete. Outcome: ${status.replace(/_/g," ")}. Valid until ${validUntil}. Contact us if you have any questions.`,
+};
+
+// ── WhatsApp sender via Netlify function ──────────────────────────────────────
+const sendWhatsApp = async (to, message) => {
+  const res = await fetch("/.netlify/functions/whatsapp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to, message }),
+  });
+  if (!res.ok) throw new Error(`WhatsApp send failed: ${res.status}`);
+  return res.json();
+};
+
+// ── WhatsApp Compose Modal ────────────────────────────────────────────────────
+const WhatsAppModal = ({ template, recipient, onClose }) => {
+  const [message, setMessage] = useState(template || "");
+  const [to, setTo] = useState(recipient?.phone || "");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSend = async () => {
+    if (!to || !message) return;
+    setSending(true);
+    setError("");
+    try {
+      await sendWhatsApp(to, message);
+      setSent(true);
+    } catch(e) {
+      setError(e.message);
+    }
+    setSending(false);
+  };
+
+  if (sent) return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: C.bgCard, borderRadius: 12, padding: "2rem", width: 400, textAlign: "center" }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>Message sent</div>
+        <div style={{ fontSize: 13, color: C.textSub, marginBottom: "1.5rem" }}>WhatsApp message delivered to {to}</div>
+        <Btn onClick={onClose}>Close</Btn>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: C.bgCard, borderRadius: 12, padding: "1.5rem", width: 480, maxWidth: "95vw" }}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: "1rem" }}>Send WhatsApp message</div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: C.textSub, display: "block", marginBottom: 4 }}>To (phone number with country code)</label>
+          <input value={to} onChange={e => setTo(e.target.value)} placeholder="+27821234567"
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+        <div style={{ marginBottom: "1rem" }}>
+          <label style={{ fontSize: 11, color: C.textSub, display: "block", marginBottom: 4 }}>Message</label>
+          <textarea value={message} onChange={e => setMessage(e.target.value)} rows={5}
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box", lineHeight: 1.6 }} />
+          <div style={{ fontSize: 11, color: C.textTert, marginTop: 4 }}>{message.length} characters</div>
+        </div>
+        {error && <div style={{ background: C.redLight, border: `1px solid ${C.red}`, borderRadius: 6, padding: "8px 10px", fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={handleSend} disabled={sending || !to || !message} style={{ background: "#25D366", borderColor: "#25D366" }}>
+            {sending ? "Sending..." : "Send via WhatsApp"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Main Finance & Billing Screen ─────────────────────────────────────────────
+const FinanceBilling = ({ session }) => {
+  const { employers, persons, encounters, db } = useData();
+  const meta = session?.user?.user_metadata || {};
+
+  const [tab, setTab] = useState("invoices");
+  const [period, setPeriod] = useState("month");
+  const [waModal, setWaModal] = useState(null); // {template, recipient}
+
+  // Invoice state
+  const [invoices, setInvoices] = useState([]);
+  const [showNewInvoice, setShowNewInvoice] = useState(false);
+  const [invSaving, setInvSaving] = useState(false);
+  const EMPTY_INV = {
+    employer_id: employers[0]?.id || "",
+    billing_model: "per_session",
+    lines: [{ description: "Occupational health sessions", quantity: 1, unit_amount: 0 }],
+    due_days: 30,
+  };
+  const [invForm, setInvForm] = useState(EMPTY_INV);
+
+  // WhatsApp alerts state
+  const [waAlerts, setWaAlerts] = useState([]);
+
+  useEffect(() => {
+    if (!db || USE_MOCK) {
+      // Build mock invoices
+      setInvoices([
+        { id: "inv1", employer_id: employers[0]?.id, invoice_number: "OHP-001", issue_date: "2026-06-01", due_date: "2026-07-01", total: 3500, vat_amount: 456.52, status: "issued", billing_model: "per_session" },
+        { id: "inv2", employer_id: employers[0]?.id, invoice_number: "OHP-002", issue_date: "2026-05-01", due_date: "2026-06-01", total: 3500, vat_amount: 456.52, status: "paid", billing_model: "per_session" },
+      ]);
+      return;
+    }
+    db.from("invoice").select("order=issue_date.desc&limit=200").then(res => {
+      if (res.data?.length) setInvoices(res.data);
+    }).catch(() => {});
+  }, [db, employers[0]?.id]);
+
+  // Build WhatsApp alert list from live data
+  useEffect(() => {
+    const alerts = [];
+    const practice = meta.tenant_name || "OccHealth Pro SA";
+    const today = new Date();
+
+    // Surveillance due within 14 days — needs persons with phone numbers
+    // In practice these come from surveillance_event — using persons as proxy
+    persons.forEach(p => {
+      if (p.phone && p.surveillance_due_date) {
+        const due = new Date(p.surveillance_due_date);
+        const days = Math.round((due - today) / 86400000);
+        if (days >= 0 && days <= 14) {
+          alerts.push({
+            id: `surv_${p.id}`,
+            type: "surveillance_due",
+            person: p,
+            label: `${p.first_name} ${p.last_name} — surveillance due in ${days} days`,
+            template: WA_TEMPLATES.surveillance_due(
+              p.first_name,
+              "health surveillance",
+              due.toLocaleDateString("en-ZA"),
+              practice
+            ),
+          });
+        }
+      }
+    });
+
+    setWaAlerts(alerts);
+  }, [persons, meta.tenant_name]);
+
+  // Generate next invoice number
+  const nextInvNumber = () => {
+    const nums = invoices.map(i => parseInt(i.invoice_number?.replace(/[^0-9]/g, "") || "0")).filter(Boolean);
+    const next = nums.length ? Math.max(...nums) + 1 : 1;
+    return `OHP-${String(next).padStart(3, "0")}`;
+  };
+
+  // Save invoice
+  const saveInvoice = async () => {
+    if (!invForm.employer_id || !invForm.lines.length) return;
+    setInvSaving(true);
+    const subtotal = invForm.lines.reduce((s, l) => s + (Number(l.quantity) * Number(l.unit_amount)), 0);
+    const vat = subtotal * VAT_RATE;
+    const total = subtotal + vat;
+    const issueDate = new Date().toISOString().slice(0,10);
+    const dueDate = new Date(Date.now() + invForm.due_days * 86400000).toISOString().slice(0,10);
+
+    const inv = {
+      employer_id: invForm.employer_id,
+      invoice_number: nextInvNumber(),
+      issue_date: issueDate,
+      due_date: dueDate,
+      billing_model: invForm.billing_model,
+      subtotal: Math.round(subtotal * 100) / 100,
+      vat_amount: Math.round(vat * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      status: "draft",
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      if (!USE_MOCK && db) {
+        const res = await db.from("invoice").insert(inv).select();
+        if (res.data?.[0]) {
+          // Insert lines
+          const lines = invForm.lines.map(l => ({
+            invoice_id: res.data[0].id,
+            description: l.description,
+            quantity: Number(l.quantity),
+            unit_amount: Number(l.unit_amount),
+            vat_rate: VAT_RATE,
+            line_total: Number(l.quantity) * Number(l.unit_amount),
+          }));
+          await db.from("invoice_line").insert(lines);
+          setInvoices(prev => [res.data[0], ...prev]);
+        }
+      } else {
+        setInvoices(prev => [{ ...inv, id: `inv_${Date.now()}` }, ...prev]);
+      }
+    } catch(e) { console.warn("Invoice save error", e); }
+
+    setInvForm({ ...EMPTY_INV, lines: [{ description: "Occupational health sessions", quantity: 1, unit_amount: 0 }] });
+    setShowNewInvoice(false);
+    setInvSaving(false);
+  };
+
+  // ── Xero CSV export ──────────────────────────────────────────────────────
+  const exportXeroInvoices = () => {
+    const header = ["ContactName","InvoiceNumber","InvoiceDate","DueDate","Description","Quantity","UnitAmount","AccountCode","TaxType"];
+    const rows = [header];
+    invoices.forEach(inv => {
+      const emp = employers.find(e => e.id === inv.employer_id);
+      const contactName = emp?.name || "Unknown";
+      // If no line detail available, create a summary line
+      rows.push([
+        contactName,
+        inv.invoice_number,
+        formatDateZA(inv.issue_date),
+        formatDateZA(inv.due_date),
+        `Occupational health services — ${inv.billing_model?.replace(/_/g," ")}`,
+        1,
+        inv.subtotal || 0,
+        "400",   // Revenue account
+        "OUTPUT2", // 15% VAT
+      ]);
+    });
+    downloadCSV(rows, `xero_invoices_${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  const exportXeroContacts = () => {
+    const header = ["Name","EmailAddress","POAddressLine1","POCity","POCountry","TaxNumber","CompanyNumber"];
+    const rows = [header];
+    employers.forEach(emp => {
+      rows.push([emp.name, emp.contact_email || "", "", "", "ZA", emp.coida_ref || "", ""]);
+    });
+    downloadCSV(rows, `xero_contacts_${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  // ── Sage CSV export ──────────────────────────────────────────────────────
+  const exportSageInvoices = () => {
+    const header = ["Type","Date","Reference","Net Amount","VAT Code","Gross Amount","Nominal Code","Details"];
+    const rows = [header];
+    invoices.forEach(inv => {
+      const emp = employers.find(e => e.id === inv.employer_id);
+      rows.push([
+        "SI",
+        formatDateZA(inv.issue_date),
+        inv.invoice_number,
+        inv.subtotal || 0,
+        "T1",
+        inv.total || 0,
+        "4000",
+        `${emp?.name || ""} — OHP services`,
+      ]);
+    });
+    downloadCSV(rows, `sage_invoices_${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  const exportSageContacts = () => {
+    const header = ["Account Reference","Company Name","Currency","Contact Name","Email"];
+    const rows = [header];
+    employers.forEach((emp, i) => {
+      rows.push([`EMP${String(i+1).padStart(3,"0")}`, emp.name, "ZAR", "", emp.contact_email || ""]);
+    });
+    downloadCSV(rows, `sage_contacts_${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  // ── VAT201 workpaper ──────────────────────────────────────────────────────
+  const exportVAT201 = () => {
+    const header = ["Invoice No","Issue Date","Contact","Net (excl VAT)","VAT (15%)","Gross (incl VAT)","Status"];
+    const rows = [header];
+    let totalNet = 0, totalVat = 0, totalGross = 0;
+    invoices.forEach(inv => {
+      const emp = employers.find(e => e.id === inv.employer_id);
+      const net = Number(inv.subtotal || 0);
+      const vat = Number(inv.vat_amount || 0);
+      const gross = Number(inv.total || 0);
+      totalNet += net; totalVat += vat; totalGross += gross;
+      rows.push([inv.invoice_number, formatDateZA(inv.issue_date), emp?.name || "", net.toFixed(2), vat.toFixed(2), gross.toFixed(2), inv.status]);
+    });
+    rows.push(["TOTAL","","",totalNet.toFixed(2),totalVat.toFixed(2),totalGross.toFixed(2),""]);
+    downloadCSV(rows, `vat201_workpaper_${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  // ── WhatsApp bulk sender (surveillance due) ───────────────────────────────
+  const sendSurveillanceReminders = async (events, survEvents) => {
+    const practice = meta.tenant_name || "OccHealth Pro SA";
+    let sent = 0;
+    for (const ev of survEvents) {
+      const p = persons.find(x => x.id === ev.person_id);
+      if (!p?.phone) continue;
+      const due = new Date(ev.scheduled_date).toLocaleDateString("en-ZA");
+      const testLabel = ev.test_type?.replace(/_/g," ") || "health surveillance";
+      try {
+        await sendWhatsApp(p.phone, WA_TEMPLATES.surveillance_due(p.first_name, testLabel, due, practice));
+        sent++;
+      } catch(e) { console.warn("WA send failed:", e); }
+    }
+    return sent;
+  };
+
+  const TAB_STYLE = (active) => ({
+    padding: "6px 14px", fontSize: 13, fontWeight: active ? 600 : 400,
+    color: active ? C.teal : C.textSub, background: "none", border: "none",
+    borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
+    cursor: "pointer",
+  });
+
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+
+  // Derived stats
+  const outstanding = invoices.filter(i => i.status === "issued").reduce((s, i) => s + Number(i.total || 0), 0);
+  const paidThisMonth = invoices.filter(i => {
+    if (i.status !== "paid") return false;
+    const d = new Date(i.issue_date);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).reduce((s, i) => s + Number(i.total || 0), 0);
+
+  return (
+    <div>
+      <div style={{ fontSize: 18, fontWeight: 500, marginBottom: "1.25rem" }}>Finance & billing</div>
+
+      {/* KPI row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: "1.25rem" }}>
+        <StatCard label="Outstanding (issued)" value={`R${outstanding.toLocaleString("en-ZA", { minimumFractionDigits: 0 })}`} color={outstanding > 0 ? C.amber : C.teal} />
+        <StatCard label="Paid this month" value={`R${paidThisMonth.toLocaleString("en-ZA", { minimumFractionDigits: 0 })}`} color={C.teal} />
+        <StatCard label="Total invoices" value={invoices.length} />
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: "1.25rem" }}>
+        <button style={TAB_STYLE(tab === "invoices")} onClick={() => setTab("invoices")}>Invoices</button>
+        <button style={TAB_STYLE(tab === "exports")} onClick={() => setTab("exports")}>Xero / Sage export</button>
+        <button style={TAB_STYLE(tab === "whatsapp")} onClick={() => setTab("whatsapp")}>WhatsApp</button>
+      </div>
+
+      {/* ── INVOICES TAB ──────────────────────────────── */}
+      {tab === "invoices" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
+            <Btn size="sm" onClick={() => setShowNewInvoice(v => !v)}>{showNewInvoice ? "Cancel" : "+ New invoice"}</Btn>
+          </div>
+
+          {showNewInvoice && (
+            <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>New invoice</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>EMPLOYER / CLIENT</div>
+                  <select style={inputStyle} value={invForm.employer_id} onChange={e => setInvForm(f => ({ ...f, employer_id: e.target.value }))}>
+                    {employers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>BILLING MODEL</div>
+                  <select style={inputStyle} value={invForm.billing_model} onChange={e => setInvForm(f => ({ ...f, billing_model: e.target.value }))}>
+                    <option value="per_session">Per session</option>
+                    <option value="per_head">Per head (employee)</option>
+                    <option value="retainer">Monthly retainer</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>PAYMENT TERMS (days)</div>
+                  <select style={inputStyle} value={invForm.due_days} onChange={e => setInvForm(f => ({ ...f, due_days: Number(e.target.value) }))}>
+                    <option value={7}>7 days</option>
+                    <option value={14}>14 days</option>
+                    <option value={30}>30 days</option>
+                    <option value={60}>60 days</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: C.textTert, marginBottom: 6 }}>LINE ITEMS</div>
+                {invForm.lines.map((line, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 80px 100px 32px", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                    <input style={inputStyle} value={line.description} onChange={e => setInvForm(f => ({ ...f, lines: f.lines.map((l, j) => j === i ? { ...l, description: e.target.value } : l) }))} placeholder="Description" />
+                    <input style={inputStyle} type="number" value={line.quantity} onChange={e => setInvForm(f => ({ ...f, lines: f.lines.map((l, j) => j === i ? { ...l, quantity: e.target.value } : l) }))} placeholder="Qty" min={1} />
+                    <input style={inputStyle} type="number" value={line.unit_amount} onChange={e => setInvForm(f => ({ ...f, lines: f.lines.map((l, j) => j === i ? { ...l, unit_amount: e.target.value } : l) }))} placeholder="Unit (excl VAT)" />
+                    <button onClick={() => setInvForm(f => ({ ...f, lines: f.lines.filter((_,j) => j !== i) }))} style={{ border: "none", background: "none", cursor: "pointer", color: C.red, fontSize: 16, padding: 0 }}>×</button>
+                  </div>
+                ))}
+                <Btn size="sm" variant="secondary" onClick={() => setInvForm(f => ({ ...f, lines: [...f.lines, { description: "", quantity: 1, unit_amount: 0 }] }))}>+ Add line</Btn>
+              </div>
+
+              {/* Totals preview */}
+              {(() => {
+                const sub = invForm.lines.reduce((s, l) => s + (Number(l.quantity) * Number(l.unit_amount)), 0);
+                const vat = sub * VAT_RATE;
+                return (
+                  <div style={{ background: C.bgSub, borderRadius: 6, padding: "10px 12px", marginBottom: 12, fontSize: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textSub }}>Subtotal (excl VAT)</span><span>R {sub.toFixed(2)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textSub }}>VAT (15%)</span><span>R {vat.toFixed(2)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, marginTop: 4, paddingTop: 4, borderTop: `1px solid ${C.border}` }}><span>Total</span><span>R {(sub + vat).toFixed(2)}</span></div>
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn onClick={saveInvoice} disabled={invSaving || !invForm.employer_id}>{invSaving ? "Saving..." : "Create invoice"}</Btn>
+                <Btn variant="secondary" onClick={() => setShowNewInvoice(false)}>Cancel</Btn>
+              </div>
+            </Card>
+          )}
+
+          {invoices.length === 0 && !showNewInvoice && (
+            <Card style={{ textAlign: "center", padding: "2rem" }}>
+              <div style={{ fontSize: 13, color: C.textSub, marginBottom: 8 }}>No invoices yet.</div>
+              <Btn size="sm" onClick={() => setShowNewInvoice(true)}>+ Create first invoice</Btn>
+            </Card>
+          )}
+
+          {invoices.map(inv => {
+            const emp = employers.find(e => e.id === inv.employer_id);
+            const isOverdue = inv.status === "issued" && inv.due_date && new Date(inv.due_date) < new Date();
+            return (
+              <Card key={inv.id} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.invoice_number}</div>
+                    <div style={{ fontSize: 12, color: C.textSub }}>{emp?.name}</div>
+                    <div style={{ fontSize: 11, color: C.textTert }}>
+                      Issued: {formatDateZA(inv.issue_date)} · Due: {formatDateZA(inv.due_date)}
+                      {isOverdue && <span style={{ color: C.red, marginLeft: 6 }}>OVERDUE</span>}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>R {Number(inv.total || 0).toLocaleString("en-ZA", { minimumFractionDigits: 2 })}</div>
+                    <div style={{ marginTop: 4 }}>
+                      <Badge color={inv.status === "paid" ? "teal" : isOverdue ? "red" : inv.status === "issued" ? "amber" : "gray"}>
+                        {inv.status}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                {inv.status === "issued" && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <Btn size="sm" variant="ghost" onClick={async () => {
+                      if (!USE_MOCK && db) await db.from("invoice").update({ status: "paid" }).eq("id", inv.id);
+                      setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "paid" } : i));
+                    }}>Mark paid</Btn>
+                    {emp?.contact_email && (
+                      <Btn size="sm" variant="secondary" onClick={() => {
+                        // Send via WhatsApp to employer contact
+                        setWaModal({
+                          template: `Hi, please find invoice ${inv.invoice_number} for occupational health services. Amount due: R ${Number(inv.total||0).toFixed(2)} (incl VAT). Due date: ${formatDateZA(inv.due_date)}. Please remit payment to your OHP. Thank you.`,
+                          recipient: { phone: "" },
+                        });
+                      }}>📱 Send reminder</Btn>
+                    )}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── EXPORTS TAB ──────────────────────────────── */}
+      {tab === "exports" && (
+        <div>
+          <Card style={{ marginBottom: "1rem" }}>
+            <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Xero</div>
+            <div style={{ fontSize: 13, color: C.textSub, marginBottom: 12, lineHeight: 1.5 }}>
+              Export invoices and contacts in Xero import format. In Xero: Accounts → Sales → Import, or Contacts → Import.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn size="sm" onClick={exportXeroInvoices} disabled={invoices.length === 0}>Xero invoices CSV</Btn>
+              <Btn size="sm" variant="secondary" onClick={exportXeroContacts} disabled={employers.length === 0}>Xero contacts CSV</Btn>
+            </div>
+            <div style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>
+              Invoice account code: 400 · Tax type: OUTPUT2 (15% VAT) · Dates: DD/MM/YYYY
+            </div>
+          </Card>
+
+          <Card style={{ marginBottom: "1rem" }}>
+            <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Sage / Pastel</div>
+            <div style={{ fontSize: 13, color: C.textSub, marginBottom: 12, lineHeight: 1.5 }}>
+              Export in Sage 50cloud / Pastel import format. In Sage: File → Import → Invoices or Customers.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn size="sm" onClick={exportSageInvoices} disabled={invoices.length === 0}>Sage invoices CSV</Btn>
+              <Btn size="sm" variant="secondary" onClick={exportSageContacts} disabled={employers.length === 0}>Sage contacts CSV</Btn>
+            </div>
+            <div style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>
+              Type: SI (Sales Invoice) · Nominal code: 4000 · VAT code: T1 (standard rated) · Currency: ZAR
+            </div>
+          </Card>
+
+          <Card>
+            <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>VAT workpaper</div>
+            <div style={{ fontSize: 13, color: C.textSub, marginBottom: 12, lineHeight: 1.5 }}>
+              Supporting schedule for SARS VAT201 return. Fields 1 (output tax), 1A (standard rated supplies), invoice detail.
+            </div>
+            <Btn size="sm" onClick={exportVAT201} disabled={invoices.length === 0}>VAT201 workpaper CSV</Btn>
+            <div style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>VAT rate: 15% · All amounts in ZAR</div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── WHATSAPP TAB ──────────────────────────────── */}
+      {tab === "whatsapp" && (
+        <div>
+          <Card style={{ background: C.tealLight, border: `1px solid ${C.tealMid}`, marginBottom: "1.25rem" }}>
+            <div style={{ fontSize: 13, color: C.tealDark, lineHeight: 1.6 }}>
+              <strong>WhatsApp reminders via Twilio.</strong> Add your Twilio credentials in Netlify environment variables: TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM (your WhatsApp-enabled number, e.g. +27...). Messages sent from your registered Twilio number.
+            </div>
+          </Card>
+
+          <SectionTitle>Message templates</SectionTitle>
+          {[
+            { key: "surveillance_due", label: "Surveillance due reminder", desc: "Sent to employees with upcoming surveillance tests", color: "amber" },
+            { key: "cert_expiring", label: "Fitness cert expiry warning", desc: "Sent to employees whose certificates expire within 30 days", color: "amber" },
+            { key: "iod_followup", label: "IOD follow-up", desc: "Sent to employees after an injury on duty", color: "red" },
+            { key: "cert_issued", label: "Certificate issued", desc: "Sent to employees after fitness assessment is complete", color: "teal" },
+          ].map(t => (
+            <Card key={t.key} style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{t.label}</div>
+                  <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>{t.desc}</div>
+                </div>
+                <Btn size="sm" variant="ghost" onClick={() => setWaModal({
+                  template: WA_TEMPLATES[t.key]("[Name]", t.key === "surveillance_due" ? "audiometry" : t.key === "cert_expiring" ? "2026-12-31" : t.key === "iod_followup" ? "01/06/2026" : "fit", t.key === "cert_issued" ? "2027-06-01" : "01/07/2026", meta.tenant_name || "OccHealth Pro SA"),
+                  recipient: { phone: "" },
+                })}>
+                  Preview & send
+                </Btn>
+              </div>
+            </Card>
+          ))}
+
+          <SectionTitle style={{ marginTop: "1.25rem" }}>Quick send</SectionTitle>
+          <Card style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 13, color: C.textSub, marginBottom: 12 }}>Send a custom message to any number.</div>
+            <Btn size="sm" onClick={() => setWaModal({ template: "", recipient: { phone: "" } })}>
+              📱 New WhatsApp message
+            </Btn>
+          </Card>
+
+          {/* Automated alerts from live data */}
+          {waAlerts.length > 0 && (
+            <>
+              <SectionTitle style={{ marginTop: "1.25rem" }}>Pending alerts ({waAlerts.length})</SectionTitle>
+              {waAlerts.map(alert => (
+                <Card key={alert.id} style={{ marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 13 }}>{alert.label}</div>
+                    <Btn size="sm" onClick={() => setWaModal({ template: alert.template, recipient: alert.person })}>Send</Btn>
+                  </div>
+                </Card>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* WhatsApp compose modal */}
+      {waModal && (
+        <WhatsAppModal
+          template={waModal.template}
+          recipient={waModal.recipient}
+          onClose={() => setWaModal(null)}
+        />
+      )}
+    </div>
+  );
+};
+
 const Settings = ({ session }) => {
   const meta = session.user.user_metadata;
   return (
@@ -3517,6 +4107,7 @@ const NAV_OHP = [
   { id: "fitness", label: "Fitness certs", icon: "✅" },
   { id: "iod", label: "IOD register", icon: "⚠" },
   { id: "drug", label: "Drug testing", icon: "🧪" },
+  { id: "finance", label: "Finance", icon: "💳" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -3703,6 +4294,7 @@ export default function App() {
     iod: <IODRegister />,
     drug: <DrugTesting />,
     portal: <EmployerPortal session={session} />,
+    finance: <FinanceBilling session={session} />,
     settings: <Settings session={session} />,
   };
 
