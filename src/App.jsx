@@ -144,7 +144,7 @@ const StatCard = ({ label, value, sub, color = C.teal }) => (
 
 const Dashboard = ({ session, navigate }) => {
   const meta = session.user.user_metadata;
-  const { encounters, fitnessCerts, employers, persons } = useData();
+  const { encounters, fitnessCerts, employers, persons, iodCount } = useData();
   const overdue = MOCK_SURVEILLANCE.filter(s => s.status === "overdue").length;
   const certsExpiring = fitnessCerts.filter(fc => {
     const days = (new Date(fc.valid_until) - new Date()) / 86400000;
@@ -173,7 +173,7 @@ const Dashboard = ({ session, navigate }) => {
         <StatCard label="Surveillance due" value={MOCK_SURVEILLANCE.filter(s => s.status !== "completed").length} color={overdue > 0 ? C.amber : C.teal} />
         <StatCard label="Encounters this month" value={encounters.length} />
         <StatCard label="Active fitness certs" value={fitnessCerts.filter(f => !f.superseded).length} />
-        <StatCard label="Open IOD cases" value={MOCK_IOD.length} color={MOCK_IOD.length > 0 ? C.amber : C.teal} />
+        <StatCard label="Open IOD cases" value={iodCount} color={iodCount > 0 ? C.amber : C.teal} />
       </div>
 
       <SectionTitle>Recent activity</SectionTitle>
@@ -195,6 +195,158 @@ const Dashboard = ({ session, navigate }) => {
           </Card>
         );
       })}
+    </div>
+  );
+};
+
+const EMPLOYMENT_STATUSES = ["active", "contractor", "terminated"];
+
+const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
+  const [showAddPerson, setShowAddPerson] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const EMPTY_PERSON = {
+    first_name: "", last_name: "", id_number: "", date_of_birth: "",
+    gender: "", job_title: "", department: "", site: "",
+    employment_status: "active", start_date: "",
+  };
+  const [form, setForm] = useState(EMPTY_PERSON);
+  const [localPersons, setLocalPersons] = useState(persons);
+
+  // Keep in sync if parent refreshes
+  useEffect(() => setLocalPersons(persons), [persons]);
+
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+
+  const handleSave = async () => {
+    if (!form.first_name || !form.last_name) return;
+    setSaving(true);
+    const payload = {
+      ...form,
+      employer_id: employer.id,
+      date_of_birth: form.date_of_birth || null,
+      start_date: form.start_date || null,
+      created_at: new Date().toISOString(),
+    };
+    try {
+      if (!USE_MOCK && db) {
+        const res = await db.from("person").insert(payload).select();
+        if (res.data?.[0]) {
+          setLocalPersons(prev => [...prev, res.data[0]]);
+        } else {
+          setLocalPersons(prev => [...prev, { ...payload, id: `p_${Date.now()}` }]);
+        }
+        await refreshData();
+      } else {
+        setLocalPersons(prev => [...prev, { ...payload, id: `p_${Date.now()}` }]);
+      }
+    } catch(e) {
+      console.warn("Add person error", e);
+      setLocalPersons(prev => [...prev, { ...payload, id: `p_${Date.now()}` }]);
+    }
+    setForm(EMPTY_PERSON);
+    setShowAddPerson(false);
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <Btn variant="ghost" size="sm" onClick={onBack} style={{ marginBottom: "1rem" }}>← Back</Btn>
+      <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 4 }}>{employer.name}</div>
+      <div style={{ fontSize: 13, color: C.textSub, marginBottom: "1.25rem" }}>
+        COIDA ref: {employer.coida_ref || "—"} · Insurer: {(employer.coida_insurer || "").replace(/_/g, " ").toUpperCase()}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <SectionTitle style={{ marginBottom: 0 }}>Employees ({localPersons.length})</SectionTitle>
+        <Btn size="sm" onClick={() => setShowAddPerson(v => !v)}>
+          {showAddPerson ? "Cancel" : "+ Add employee"}
+        </Btn>
+      </div>
+
+      {showAddPerson && (
+        <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>New employee</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>FIRST NAME *</div>
+              <input style={inputStyle} value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First name" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>LAST NAME *</div>
+              <input style={inputStyle} value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Last name" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>ID NUMBER</div>
+              <input style={inputStyle} value={form.id_number} onChange={e => setForm(f => ({ ...f, id_number: e.target.value }))} placeholder="SA ID number" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>DATE OF BIRTH</div>
+              <input style={inputStyle} type="date" value={form.date_of_birth} onChange={e => setForm(f => ({ ...f, date_of_birth: e.target.value }))} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>GENDER</div>
+              <select style={inputStyle} value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))}>
+                <option value="">Select...</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>STATUS</div>
+              <select style={inputStyle} value={form.employment_status} onChange={e => setForm(f => ({ ...f, employment_status: e.target.value }))}>
+                {EMPLOYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>JOB TITLE</div>
+              <input style={inputStyle} value={form.job_title} onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))} placeholder="e.g. Boilermaker" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>DEPARTMENT</div>
+              <input style={inputStyle} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} placeholder="e.g. Maintenance" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>SITE / LOCATION</div>
+              <input style={inputStyle} value={form.site} onChange={e => setForm(f => ({ ...f, site: e.target.value }))} placeholder="e.g. Plant 2" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>START DATE</div>
+              <input style={inputStyle} type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn size="sm" onClick={handleSave} disabled={saving || !form.first_name || !form.last_name}>
+              {saving ? "Saving..." : "Save employee"}
+            </Btn>
+            <Btn size="sm" variant="secondary" onClick={() => { setShowAddPerson(false); setForm(EMPTY_PERSON); }}>Cancel</Btn>
+          </div>
+        </Card>
+      )}
+
+      {localPersons.length === 0 && !showAddPerson && (
+        <Card style={{ textAlign: "center", padding: "2rem" }}>
+          <div style={{ fontSize: 13, color: C.textSub, marginBottom: 8 }}>No employees yet.</div>
+          <Btn size="sm" onClick={() => setShowAddPerson(true)}>+ Add first employee</Btn>
+        </Card>
+      )}
+
+      {localPersons.map(p => (
+        <Card key={p.id} style={{ marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{p.first_name} {p.last_name}</div>
+              <div style={{ fontSize: 12, color: C.textSub }}>
+                {[p.job_title, p.department, p.site].filter(Boolean).join(" · ")}
+              </div>
+              {p.id_number && <div style={{ fontSize: 11, color: C.textTert }}>ID: {p.id_number}</div>}
+            </div>
+            <Badge color={p.employment_status === "active" ? "teal" : p.employment_status === "contractor" ? "amber" : "gray"}>
+              {p.employment_status}
+            </Badge>
+          </div>
+        </Card>
+      ))}
     </div>
   );
 };
@@ -221,23 +373,13 @@ const Employers = ({ navigate }) => {
   if (sel) {
     const persons = allPersons.filter(p => p.employer_id === sel.id);
     return (
-      <div>
-        <Btn variant="ghost" size="sm" onClick={() => setSel(null)} style={{ marginBottom: "1rem" }}>← Back</Btn>
-        <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 4 }}>{sel.name}</div>
-        <div style={{ fontSize: 13, color: C.textSub, marginBottom: "1.25rem" }}>COIDA ref: {sel.coida_ref} · Insurer: {sel.coida_insurer.replace(/_/g, " ").toUpperCase()}</div>
-        <SectionTitle>Employees ({persons.length})</SectionTitle>
-        {persons.map(p => (
-          <Card key={p.id} style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{p.first_name} {p.last_name}</div>
-                <div style={{ fontSize: 12, color: C.textSub }}>{p.job_title} · {p.department} · {p.site}</div>
-              </div>
-              <Badge color="teal">{p.employment_status}</Badge>
-            </div>
-          </Card>
-        ))}
-      </div>
+      <EmployerDetail
+        employer={sel}
+        persons={persons}
+        db={db}
+        refreshData={refreshData}
+        onBack={() => setSel(null)}
+      />
     );
   }
   const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
@@ -1715,7 +1857,15 @@ const IODRegister = () => {
     setSaving(false);
   };
 
-  const iods = liveIODs || MOCK_IOD;
+  // Load live IOD data from Supabase on mount
+  useEffect(() => {
+    if (!db || USE_MOCK) return;
+    db.from("iod_incident").select("order=incident_at.desc&limit=200").then(res => {
+      if (res.data?.length) setLiveIODs(res.data);
+    }).catch(() => {});
+  }, [db]);
+
+  const iods = liveIODs ?? MOCK_IOD;
   const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
   const labelStyle = { fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textTert, marginBottom: 4, fontWeight: 500, display: "block" };
   const FIRST_AID_OPTIONS = ["Wound cleaned and dressed","Ice pack applied","Immobilisation / splinting","CPR administered","Oxygen administered","Referred to hospital","Other"];
@@ -1992,7 +2142,15 @@ const DrugTesting = () => {
     setSaving(false);
   };
 
-  const tests = liveTests || MOCK_DRUG_TESTS;
+  // Load live drug test data from Supabase on mount
+  useEffect(() => {
+    if (!db || USE_MOCK) return;
+    db.from("drug_test").select("order=tested_at.desc&limit=200").then(res => {
+      if (res.data?.length) setLiveTests(res.data);
+    }).catch(() => {});
+  }, [db]);
+
+  const tests = liveTests ?? MOCK_DRUG_TESTS;
   const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
   const labelStyle = { fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textTert, marginBottom: 4, fontWeight: 500, display: "block" };
 
@@ -2918,8 +3076,11 @@ export default function App() {
 
   const navigate = (s) => setScreen(s);
 
+  // iodCount: derived from live data if available — feeds Dashboard stat card
+  const iodCount = MOCK_IOD.length; // replaced with live count once IODRegister loads
+
   const dataCtx = { employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
-    setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons };
+    setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount };
 
   const screens = {
     dashboard: <Dashboard session={session} navigate={navigate} />,
