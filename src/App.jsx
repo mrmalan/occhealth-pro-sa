@@ -4202,9 +4202,9 @@ export default function App() {
     setDataLoading(true);
     try {
       const [empRes, persRes, encRes, fcRes] = await Promise.all([
-        db.from("employer").select("tenant_id=not.is.null"),
-        db.from("person").select("employer_id=not.is.null"),
-        db.from("clinical_encounter").select("id=not.is.null&limit=100"),
+        db.from("employer").select(""),
+        db.from("person").select(""),
+        db.from("clinical_encounter").select("limit=100"),
         db.from("fitness_certificate").select("superseded=eq.false&limit=100"),
       ]);
       if (empRes.data) setLiveEmployers(empRes.data);
@@ -4212,8 +4212,13 @@ export default function App() {
       if (encRes.data) setLiveEncounters(encRes.data);
       if (fcRes.data) setLiveFitnessCerts(fcRes.data);
 
-      // Check if onboarding needed (no employers = never set up)
-      if (empRes.data && empRes.data.length === 0) {
+      // Only trigger onboarding if:
+      // 1. The query actually succeeded (data is an array, not null)
+      // 2. The array is genuinely empty
+      // 3. User metadata doesn't say onboarding is complete
+      // This prevents a failed/RLS-blocked query from looping into onboarding
+      const metaComplete = session?.user?.user_metadata?.onboarding_complete;
+      if (!metaComplete && empRes.data !== null && Array.isArray(empRes.data) && empRes.data.length === 0) {
         setNeedsOnboarding(true);
       }
     } catch(e) {
@@ -4225,10 +4230,14 @@ export default function App() {
   const handleLogin = async (sess) => {
     setSession(sess);
     localStorage.setItem(LS.SESSION, JSON.stringify(sess));
-    // Check onboarding for new real users
+    // Only trigger onboarding if metadata explicitly has onboarding_complete: false
+    // If the field is absent, the user may be returning — let loadAllData decide
     if (!USE_MOCK && sess?.access_token) {
-      const onboarded = sess?.user?.user_metadata?.onboarding_complete;
-      if (!onboarded) setNeedsOnboarding(true);
+      const meta = sess?.user?.user_metadata || {};
+      if (meta.onboarding_complete === false) {
+        setNeedsOnboarding(true);
+      }
+      // If onboarding_complete is absent or true, let loadAllData check employer count
     }
   };
 
