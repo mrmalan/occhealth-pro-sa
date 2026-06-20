@@ -1244,8 +1244,16 @@ const OnboardingWizard = ({ session, onComplete }) => {
   const savePractitioner = async () => {
     if (!practitioner.name) { setError("Name is required"); return; }
     setSaving(true); setError("");
-    const { error: err } = await db.from("practitioner").insert({ ...practitioner, tenant_id: tenantId, created_at: new Date().toISOString() });
-    if (err) { setError("Failed to save practitioner details."); setSaving(false); return; }
+    const practData = {
+      name: practitioner.name,
+      tenant_id: tenantId,
+      qualification: practitioner.qualification,
+      created_at: new Date().toISOString(),
+    };
+    if (practitioner.sanc_number) practData.sanc_number = practitioner.sanc_number;
+    if (practitioner.registration_expiry) practData.registration_expiry = practitioner.registration_expiry;
+    const { error: err } = await db.from("practitioner").insert(practData);
+    if (err) { setError(`Failed to save practitioner details: ${err.message || JSON.stringify(err)}`); setSaving(false); return; }
     setSaving(false);
     setStep(3);
   };
