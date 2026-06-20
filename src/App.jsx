@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, createContext, useContext } from "react";
-import * as React from "react";
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "YOUR_PROJECT";
