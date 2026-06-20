@@ -212,8 +212,8 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
   const [form, setForm] = useState(EMPTY_PERSON);
   const [localPersons, setLocalPersons] = useState(persons);
 
-  // Keep in sync if parent refreshes
-  useEffect(() => setLocalPersons(persons), [persons]);
+  // Keep in sync if parent refreshes — use length + ids as dep to avoid infinite loop
+  useEffect(() => setLocalPersons(persons), [persons.map(p => p.id).join(",")]);
 
   const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
 
@@ -411,10 +411,10 @@ const Employers = ({ navigate }) => {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500 }}>{e.name}</div>
-              <div style={{ fontSize: 12, color: C.textSub }}>{e.industry_class} · {e.person_count} employees</div>
+              <div style={{ fontSize: 12, color: C.textSub }}>{e.industry_class} · {e.person_count || 0} employees</div>
               <div style={{ fontSize: 11, color: C.textTert, marginTop: 2 }}>COIDA: {e.coida_ref}</div>
             </div>
-            <Badge color={e.coida_insurer === "fem" ? "amber" : "teal"}>{e.coida_insurer.replace(/_/g, " ").toUpperCase()}</Badge>
+            <Badge color={e.coida_insurer === "fem" ? "amber" : "teal"}>{(e.coida_insurer || "compensation_fund").replace(/_/g, " ").toUpperCase()}</Badge>
           </div>
         </Card>
       ))}
