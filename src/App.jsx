@@ -2249,6 +2249,19 @@ const IODRegister = () => {
     {iods.map(iod => {
       const person = persons.find(p => p.id === iod.person_id);
       const employer = employers.find(e => e.id === iod.employer_id);
+      const claim = coidaClaims[iod.id];
+      const nextStatus = !claim ? "submitted"
+        : claim.status === "submitted" ? "acknowledged"
+        : claim.status === "acknowledged" ? "assessed"
+        : claim.status === "assessed" ? "approved"
+        : claim.status === "approved" ? "paid"
+        : null;
+      const nextLabel = !claim ? "Log COIDA claim"
+        : claim.status === "submitted" ? "Mark acknowledged"
+        : claim.status === "acknowledged" ? "Mark assessed"
+        : claim.status === "assessed" ? "Mark approved"
+        : claim.status === "approved" ? "Mark paid"
+        : null;
       return (
         <Card key={iod.id} style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
@@ -2257,10 +2270,13 @@ const IODRegister = () => {
               <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name}</div>
               <div style={{ fontSize: 11, color: C.textTert }}>{new Date(iod.incident_at).toLocaleString("en-ZA")}</div>
             </div>
-            <Badge color={iod.severity === "medical_treatment" ? "amber" : iod.severity === "lost_time" ? "red" : "gray"}>{iod.severity.replace(/_/g," ")}</Badge>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+              <Badge color={iod.severity === "medical_treatment" ? "amber" : iod.severity === "lost_time" ? "red" : "gray"}>{iod.severity.replace(/_/g," ")}</Badge>
+              {claim && <Badge color={CLAIM_STATUSES.find(s => s.value === claim.status)?.color || "gray"}>{claim.status}</Badge>}
+            </div>
           </div>
           <div style={{ fontSize: 12, color: C.textSub, background: C.bgSub, borderRadius: 6, padding: "6px 10px", marginBottom: 8 }}>{iod.narrative}</div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Btn size="sm" variant="ghost" onClick={() => generateWCL2(iod)} disabled={generatingId === iod.id + "_wcl2"}>
               {generatingId === iod.id + "_wcl2" ? "Generating..." : "Generate W.Cl.2"}
             </Btn>
@@ -4198,8 +4214,20 @@ export default function App() {
   }, []);
 
   // Load live data when session exists and Supabase connected
+  // Also check if the token is expired — if so, clear session and force re-login
   useEffect(() => {
     if (!session || USE_MOCK || !token) return;
+    // JWT exp is in the token payload — check if expired
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const expiry = payload.exp * 1000; // convert to ms
+      if (Date.now() > expiry) {
+        console.warn("Session expired — clearing");
+        setSession(null);
+        localStorage.removeItem(LS.SESSION);
+        return;
+      }
+    } catch(e) { /* not a JWT, ignore */ }
     loadAllData();
   }, [session?.access_token]);
 
