@@ -1140,15 +1140,66 @@ const IODRegister = () => {
   );
 };
 
-const DrugTesting = () => (
+const DrugTesting = () => {
+  const { persons, employers } = useData();
+  const [generatingId, setGeneratingId] = useState(null);
+
+  const printCert = async (dt) => {
+    setGeneratingId(dt.id);
+    try {
+      const person = persons.find(p => p.id === dt.person_id);
+      const employer = employers.find(e => e.id === dt.employer_id);
+      const payload = {
+        cert_id: dt.id,
+        practice_name: "OccHealth Pro SA",
+        person_first_name: person?.first_name || "",
+        person_last_name: person?.last_name || "",
+        employee_number: person?.employee_number || "",
+        employer_name: employer?.name || "",
+        job_title: person?.job_title || "",
+        site: person?.site || employer?.name || "",
+        tested_at: dt.tested_at || "",
+        test_reason: dt.test_reason || "random",
+        specimen_type: dt.specimen_type || "urine",
+        device_brand: dt.device_brand || "",
+        device_lot: dt.device_lot || "",
+        substances_tested: dt.substances_tested || [],
+        substances_positive: dt.substances_positive || [],
+        result: dt.result || "negative",
+        refusal: dt.refusal || false,
+        refusal_reason: dt.refusal_reason || "",
+        consent_given: dt.consent_given !== false,
+        practitioner_name: dt.practitioner_name || "",
+        sanc_number: dt.sanc_number || "",
+        qualification: dt.qualification || "",
+        collector_name: dt.collector_name || "",
+        witness_name: dt.witness_name || "",
+      };
+      const res = await fetch("/.netlify/functions/drug-test-cert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch(e) {
+      alert("Failed to generate certificate: " + e.message);
+    }
+    setGeneratingId(null);
+  };
+
+  return (
   <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
       <div style={{ fontSize: 18, fontWeight: 500 }}>Drug & alcohol testing</div>
       <Btn size="sm">+ New test</Btn>
     </div>
     {MOCK_DRUG_TESTS.map(dt => {
-      const person = MOCK_PERSONS.find(p => p.id === dt.person_id);
-      const employer = MOCK_EMPLOYERS.find(e => e.id === dt.employer_id);
+      const person = persons.find(p => p.id === dt.person_id);
+      const employer = employers.find(e => e.id === dt.employer_id);
       return (
         <Card key={dt.id} style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1160,14 +1211,17 @@ const DrugTesting = () => (
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
               <Badge color={dt.result === "negative" ? "teal" : dt.result === "positive" ? "red" : "amber"}>{dt.result}</Badge>
-              <Btn size="sm" variant="ghost">Certificate</Btn>
+              <Btn size="sm" variant="ghost" onClick={() => printCert(dt)} disabled={generatingId === dt.id}>
+                {generatingId === dt.id ? "Generating..." : "Certificate"}
+              </Btn>
             </div>
           </div>
         </Card>
       );
     })}
   </div>
-);
+  );
+};
 
 const EmployerPortal = ({ session }) => (
   <div>
