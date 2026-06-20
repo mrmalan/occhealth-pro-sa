@@ -1057,15 +1057,65 @@ const FitnessCerts = () => {
   );
 };
 
-const IODRegister = () => (
+const IODRegister = () => {
+  const { persons, employers } = useData();
+  const [generatingId, setGeneratingId] = useState(null);
+
+  const generateWCL2 = async (iod) => {
+    setGeneratingId(iod.id + "_wcl2");
+    try {
+      const person = persons.find(p => p.id === iod.person_id);
+      const employer = employers.find(e => e.id === iod.employer_id);
+      const incidentDate = iod.incident_at ? new Date(iod.incident_at) : new Date();
+      const payload = {
+        employer_name: employer?.name || "",
+        coida_ref: employer?.coida_ref || "",
+        coida_insurer: employer?.coida_insurer || "compensation_fund",
+        contact_email: employer?.contact_email || "",
+        industry_class: employer?.industry_class || "",
+        person_first_name: person?.first_name || "",
+        person_last_name: person?.last_name || "",
+        employee_number: person?.employee_number || "",
+        job_title: person?.job_title || "",
+        department: person?.department || "",
+        date_of_birth: person?.date_of_birth || "",
+        start_date: person?.start_date || "",
+        id_number: person?.id_number || "",
+        site: iod.site || person?.site || employer?.name || "",
+        incident_date: incidentDate.toISOString().slice(0, 10),
+        incident_time: incidentDate.toTimeString().slice(0, 5),
+        incident_type: iod.incident_type || "injury",
+        severity: iod.severity || "medical_treatment",
+        body_part: iod.body_part || "",
+        mechanism: iod.mechanism || "",
+        narrative: iod.narrative || "",
+        first_aid_given: iod.first_aid_given || [],
+      };
+      const res = await fetch("/.netlify/functions/wcl2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch(e) {
+      alert("Failed to generate W.Cl.2: " + e.message);
+    }
+    setGeneratingId(null);
+  };
+
+  return (
   <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
       <div style={{ fontSize: 18, fontWeight: 500 }}>IOD register</div>
       <Btn size="sm">+ Log IOD</Btn>
     </div>
     {MOCK_IOD.map(iod => {
-      const person = MOCK_PERSONS.find(p => p.id === iod.person_id);
-      const employer = MOCK_EMPLOYERS.find(e => e.id === iod.employer_id);
+      const person = persons.find(p => p.id === iod.person_id);
+      const employer = employers.find(e => e.id === iod.employer_id);
       return (
         <Card key={iod.id} style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
@@ -1078,14 +1128,17 @@ const IODRegister = () => (
           </div>
           <div style={{ fontSize: 12, color: C.textSub, background: C.bgSub, borderRadius: 6, padding: "6px 10px", marginBottom: 8 }}>{iod.narrative}</div>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn size="sm" variant="ghost">Generate W.Cl.2</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => generateWCL2(iod)} disabled={generatingId === iod.id + "_wcl2"}>
+              {generatingId === iod.id + "_wcl2" ? "Generating..." : "Generate W.Cl.2"}
+            </Btn>
             <Btn size="sm" variant="ghost">Generate W.Cl.4</Btn>
           </div>
         </Card>
       );
     })}
   </div>
-);
+  );
+};
 
 const DrugTesting = () => (
   <div>
