@@ -1131,7 +1131,49 @@ const IODRegister = () => {
             <Btn size="sm" variant="ghost" onClick={() => generateWCL2(iod)} disabled={generatingId === iod.id + "_wcl2"}>
               {generatingId === iod.id + "_wcl2" ? "Generating..." : "Generate W.Cl.2"}
             </Btn>
-            <Btn size="sm" variant="ghost">Generate W.Cl.4</Btn>
+            <Btn size="sm" variant="ghost" onClick={async () => {
+              setGeneratingId(iod.id + "_wcl4");
+              try {
+                const person = persons.find(p => p.id === iod.person_id);
+                const employer = employers.find(e => e.id === iod.employer_id);
+                const incidentDate = iod.incident_at ? new Date(iod.incident_at) : new Date();
+                const payload = {
+                  employer_name: employer?.name || "",
+                  coida_ref: employer?.coida_ref || "",
+                  person_first_name: person?.first_name || "",
+                  person_last_name: person?.last_name || "",
+                  employee_number: person?.employee_number || "",
+                  job_title: person?.job_title || "",
+                  date_of_birth: person?.date_of_birth || "",
+                  id_number: person?.id_number || "",
+                  gender: person?.gender || "",
+                  site: person?.site || employer?.name || "",
+                  incident_date: incidentDate.toISOString().slice(0,10),
+                  body_part: iod.body_part || "",
+                  mechanism: iod.mechanism || "",
+                  narrative: iod.narrative || "",
+                  subjective: iod.narrative || "",
+                  objective: "",
+                  assessment: "",
+                  plan: "",
+                  vitals: null,
+                  work_related: "yes",
+                  work_fitness: iod.severity === "lost_time" ? "unfit" : "light",
+                  signed_at: new Date().toISOString().slice(0,10),
+                };
+                const res = await fetch("/.netlify/functions/wcl4", {
+                  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+                });
+                if (!res.ok) throw new Error("Failed");
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                window.open(url, "_blank");
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
+              } catch(e) { alert("Failed to generate W.Cl.4: " + e.message); }
+              setGeneratingId(null);
+            }} disabled={generatingId === iod.id + "_wcl4"}>
+              {generatingId === iod.id + "_wcl4" ? "Generating..." : "Generate W.Cl.4"}
+            </Btn>
           </div>
         </Card>
       );
