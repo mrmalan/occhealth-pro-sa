@@ -1242,7 +1242,7 @@ const OnboardingWizard = ({ session, onComplete }) => {
   };
 
   const savePractitioner = async () => {
-    if (!practitioner.name || !practitioner.sanc_number) { setError("Name and SANC number are required"); return; }
+    if (!practitioner.name) { setError("Name is required"); return; }
     setSaving(true); setError("");
     const { error: err } = await db.from("practitioner").insert({ ...practitioner, tenant_id: tenantId, created_at: new Date().toISOString() });
     if (err) { setError("Failed to save practitioner details."); setSaving(false); return; }
@@ -1334,7 +1334,7 @@ const OnboardingWizard = ({ session, onComplete }) => {
               <input style={inputStyle} value={practitioner.name} onChange={e => setPractitioner(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Sr. Thandi Dlamini" />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>SANC registration number *</label>
+              <label style={labelStyle}>SANC registration number (optional)</label>
               <input style={inputStyle} value={practitioner.sanc_number} onChange={e => setPractitioner(p => ({ ...p, sanc_number: e.target.value }))} placeholder="e.g. 123456789" />
             </div>
             <div style={{ marginBottom: 12 }}>
