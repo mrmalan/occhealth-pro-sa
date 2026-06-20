@@ -438,3 +438,44 @@ ALTER TABLE audit_log          ENABLE ROW LEVEL SECURITY;
 -- users to read/write — replace with tenant-scoped policies before going live.
 -- TODO: Replace with: USING (tenant_id = (SELECT tenant_id FROM practitioner WHERE auth_id = auth.uid()))
 
+
+-- ── MATERIALISED VIEW REFRESH FUNCTION ───────────────────────────────────────
+-- Called by the nightly surveillance scheduler via Supabase RPC.
+-- CONCURRENTLY allows reads during refresh (requires a unique index on each view).
+-- Unique indexes added below — required for CONCURRENTLY to work.
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_surv_summary_unique
+  ON employer_surveillance_summary (employer_id, month, test_type);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_iod_summary_unique
+  ON employer_iod_summary (employer_id, month);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fitness_summary_unique
+  ON employer_fitness_summary (employer_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_drug_summary_unique
+  ON employer_drug_test_summary (employer_id, month);
+
+CREATE OR REPLACE FUNCTION refresh_matview(view_name text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  CASE view_name
+    WHEN 'employer_surveillance_summary' THEN
+      REFRESH MATERIALIZED VIEW CONCURRENTLY employer_surveillance_summary;
+    WHEN 'employer_iod_summary' THEN
+      REFRESH MATERIALIZED VIEW CONCURRENTLY employer_iod_summary;
+    WHEN 'employer_fitness_summary' THEN
+      REFRESH MATERIALIZED VIEW CONCURRENTLY employer_fitness_summary;
+    WHEN 'employer_drug_test_summary' THEN
+      REFRESH MATERIALIZED VIEW CONCURRENTLY employer_drug_test_summary;
+    ELSE
+      RAISE EXCEPTION 'Unknown view: %', view_name;
+  END CASE;
+END;
+$$;
+
+-- Grant execute to service role (used by scheduler)
+GRANT EXECUTE ON FUNCTION refresh_matview(text) TO service_role;

@@ -159,12 +159,41 @@ export async function handler(event) {
     // Write audit log
     await writeAudit(log);
 
+    // ── JOB 3: REFRESH MATERIALISED VIEWS ────────────────────────────────────
+    // Employer portal reads from these four views — must be refreshed after
+    // surveillance data changes so the portal shows current numbers.
+    // Uses Supabase RPC endpoint to call a stored procedure that runs all four
+    // REFRESH MATERIALIZED VIEW CONCURRENTLY statements.
+    // CONCURRENTLY means reads are not blocked during refresh.
+    const views = [
+      "employer_surveillance_summary",
+      "employer_iod_summary",
+      "employer_fitness_summary",
+      "employer_drug_test_summary",
+    ];
+
+    const refreshResults = {};
+    for (const view of views) {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/refresh_matview`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ view_name: view }),
+        });
+        refreshResults[view] = r.ok ? "ok" : `${r.status}`;
+      } catch(e) {
+        refreshResults[view] = `error: ${e.message}`;
+      }
+    }
+    console.log("Matview refresh results:", refreshResults);
+
     return {
       statusCode: 200,
       body: JSON.stringify({
         ok: true,
         marked_overdue: overdueEvents?.length ?? 0,
         next_cycles_generated: log.filter(l => l.detail?.job === "generate_next_cycle").length,
+        matviews_refreshed: refreshResults,
         ran_at: now,
       }),
     };
