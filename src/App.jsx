@@ -1757,6 +1757,16 @@ export default function App() {
         headers: { "apikey": SUPABASE_ANON, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ data: { ...session?.user?.user_metadata, onboarding_complete: true } }),
       }).catch(() => {});
+      // Update local session so the check doesn't re-trigger on next render
+      const updatedSession = {
+        ...session,
+        user: {
+          ...session.user,
+          user_metadata: { ...session.user.user_metadata, onboarding_complete: true }
+        }
+      };
+      setSession(updatedSession);
+      localStorage.setItem(LS.SESSION, JSON.stringify(updatedSession));
       await loadAllData();
     }
   };
