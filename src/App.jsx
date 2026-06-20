@@ -994,36 +994,626 @@ const Encounters = ({ navigate, session }) => {
   );
 };
 
-const Surveillance = () => (
-  <div>
-    <div style={{ fontSize: 18, fontWeight: 500, marginBottom: "1.25rem" }}>Health surveillance</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: "1.25rem" }}>
-      <StatCard label="Scheduled" value={MOCK_SURVEILLANCE.filter(s => s.status === "scheduled").length} />
-      <StatCard label="Overdue" value={MOCK_SURVEILLANCE.filter(s => s.status === "overdue").length} color={C.red} />
-      <StatCard label="Completed this month" value={0} />
-    </div>
-    <SectionTitle>Upcoming & overdue</SectionTitle>
-    {MOCK_SURVEILLANCE.map(sv => {
-      const person = MOCK_PERSONS.find(p => p.id === sv.person_id);
-      const employer = MOCK_EMPLOYERS.find(e => e.id === person?.employer_id);
-      return (
-        <Card key={sv.id} style={{ marginBottom: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{person?.first_name} {person?.last_name}</div>
-              <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name} · {sv.test_type}</div>
-              <div style={{ fontSize: 11, color: C.textTert }}>Due: {new Date(sv.scheduled_date).toLocaleDateString("en-ZA")}</div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-              <Badge color={sv.status === "overdue" ? "red" : sv.status === "completed" ? "teal" : "gray"}>{sv.status}</Badge>
-              <Btn size="sm" variant="ghost">Capture result</Btn>
-            </div>
+// ─── SURVEILLANCE REGISTER ────────────────────────────────────────────────────
+
+const TEST_TYPES = [
+  { value: "audiometry", label: "Audiometry" },
+  { value: "spirometry", label: "Spirometry" },
+  { value: "vision", label: "Vision" },
+  { value: "bio_monitor", label: "Biological monitoring" },
+  { value: "blood_pressure", label: "Blood pressure" },
+  { value: "glucose", label: "Glucose" },
+  { value: "lung_function", label: "Lung function" },
+];
+
+// ── Hazard Profile Modal ──────────────────────────────────────────────────────
+const HazardProfileModal = ({ employers, onSave, onClose }) => {
+  const [form, setForm] = useState({
+    employer_id: employers[0]?.id || "",
+    name: "",
+    hazard_codes: "",
+    surveillance_types: [],
+    surveillance_period_months: 12,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const toggleType = (val) => {
+    setForm(f => ({
+      ...f,
+      surveillance_types: f.surveillance_types.includes(val)
+        ? f.surveillance_types.filter(t => t !== val)
+        : [...f.surveillance_types, val],
+    }));
+  };
+
+  const handleSave = async () => {
+    if (!form.name || !form.employer_id || form.surveillance_types.length === 0) return;
+    setSaving(true);
+    await onSave({
+      ...form,
+      hazard_codes: form.hazard_codes.split(",").map(s => s.trim()).filter(Boolean),
+      surveillance_period_months: Number(form.surveillance_period_months),
+    });
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: C.bgCard, borderRadius: 12, padding: "1.5rem", width: 480, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto" }}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: "1rem" }}>New hazard profile</div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: C.textSub, display: "block", marginBottom: 4 }}>Employer</label>
+          <select value={form.employer_id} onChange={e => setForm(f => ({ ...f, employer_id: e.target.value }))}
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13 }}>
+            {employers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: C.textSub, display: "block", marginBottom: 4 }}>Profile name</label>
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            placeholder="e.g. Noise-exposed workers"
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: C.textSub, display: "block", marginBottom: 4 }}>Hazard codes (comma-separated)</label>
+          <input value={form.hazard_codes} onChange={e => setForm(f => ({ ...f, hazard_codes: e.target.value }))}
+            placeholder="e.g. NOISE, DUST, SOLVENT"
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: C.textSub, display: "block", marginBottom: 8 }}>Required surveillance tests</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {TEST_TYPES.map(t => (
+              <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                <input type="checkbox" checked={form.surveillance_types.includes(t.value)} onChange={() => toggleType(t.value)} />
+                {t.label}
+              </label>
+            ))}
           </div>
-        </Card>
-      );
-    })}
-  </div>
-);
+        </div>
+
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label style={{ fontSize: 12, color: C.textSub, display: "block", marginBottom: 4 }}>Surveillance frequency</label>
+          <select value={form.surveillance_period_months} onChange={e => setForm(f => ({ ...f, surveillance_period_months: e.target.value }))}
+            style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13 }}>
+            <option value={6}>Every 6 months</option>
+            <option value={12}>Annually</option>
+            <option value={24}>Every 2 years</option>
+            <option value={36}>Every 3 years</option>
+          </select>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={handleSave} disabled={saving || !form.name || form.surveillance_types.length === 0}>
+            {saving ? "Saving..." : "Create profile"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Enrol Employees Modal ─────────────────────────────────────────────────────
+const EnrolModal = ({ profile, persons, enrolledIds, onSave, onClose }) => {
+  const eligible = persons.filter(p => p.employer_id === profile.employer_id);
+  const [selected, setSelected] = useState(new Set(enrolledIds));
+  const [saving, setSaving] = useState(false);
+
+  const toggle = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(profile.id, Array.from(selected));
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: C.bgCard, borderRadius: 12, padding: "1.5rem", width: 440, maxWidth: "95vw", maxHeight: "85vh", overflowY: "auto" }}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Enrol employees</div>
+        <div style={{ fontSize: 12, color: C.textSub, marginBottom: "1rem" }}>{profile.name}</div>
+
+        {eligible.length === 0 && (
+          <div style={{ fontSize: 13, color: C.textSub, padding: "1rem 0" }}>No employees found for this employer. Add employees first.</div>
+        )}
+
+        {eligible.map(p => (
+          <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer" }}>
+            <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{p.first_name} {p.last_name}</div>
+              <div style={{ fontSize: 11, color: C.textSub }}>{p.job_title || "—"} · {p.site || "—"}</div>
+            </div>
+          </label>
+        ))}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: "1rem" }}>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={handleSave} disabled={saving || eligible.length === 0}>
+            {saving ? "Saving..." : `Save enrolment (${selected.size})`}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Result Capture Modal ──────────────────────────────────────────────────────
+const ResultCaptureModal = ({ event, person, onSave, onClose }) => {
+  const [results, setResults] = useState({});
+  const [flagged, setFlagged] = useState(false);
+  const [flagDetail, setFlagDetail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [aiChecking, setAiChecking] = useState(false);
+
+  // Fields per test type
+  const fields = {
+    audiometry: [
+      { key: "left_500hz",  label: "Left 500 Hz (dB)" },
+      { key: "left_1khz",   label: "Left 1 kHz (dB)" },
+      { key: "left_2khz",   label: "Left 2 kHz (dB)" },
+      { key: "left_4khz",   label: "Left 4 kHz (dB)" },
+      { key: "left_8khz",   label: "Left 8 kHz (dB)" },
+      { key: "right_500hz", label: "Right 500 Hz (dB)" },
+      { key: "right_1khz",  label: "Right 1 kHz (dB)" },
+      { key: "right_2khz",  label: "Right 2 kHz (dB)" },
+      { key: "right_4khz",  label: "Right 4 kHz (dB)" },
+      { key: "right_8khz",  label: "Right 8 kHz (dB)" },
+    ],
+    spirometry: [
+      { key: "fvc",           label: "FVC (L)" },
+      { key: "fev1",          label: "FEV1 (L)" },
+      { key: "fev1_fvc_ratio", label: "FEV1/FVC ratio" },
+      { key: "pef",           label: "PEF (L/min)" },
+    ],
+    vision: [
+      { key: "va_right_uncorrected", label: "VA right (uncorrected)" },
+      { key: "va_left_uncorrected",  label: "VA left (uncorrected)" },
+      { key: "va_right_corrected",   label: "VA right (corrected)" },
+      { key: "va_left_corrected",    label: "VA left (corrected)" },
+      { key: "colour_vision",        label: "Colour vision" },
+    ],
+    bio_monitor: [
+      { key: "substance",       label: "Substance" },
+      { key: "result_value",    label: "Result value" },
+      { key: "unit",            label: "Unit" },
+      { key: "reference_range", label: "Reference range" },
+    ],
+    blood_pressure: [
+      { key: "systolic",  label: "Systolic (mmHg)" },
+      { key: "diastolic", label: "Diastolic (mmHg)" },
+      { key: "pulse",     label: "Pulse (bpm)" },
+    ],
+    glucose: [
+      { key: "fasting",        label: "Fasting glucose (mmol/L)" },
+      { key: "random",         label: "Random glucose (mmol/L)" },
+      { key: "hba1c",          label: "HbA1c (%)" },
+    ],
+    lung_function: [
+      { key: "fvc",  label: "FVC (L)" },
+      { key: "fev1", label: "FEV1 (L)" },
+      { key: "pef",  label: "PEF (L/min)" },
+    ],
+  };
+
+  const typeFields = fields[event?.test_type] || [];
+
+  const checkWithAI = async () => {
+    setAiChecking(true);
+    try {
+      const resp = await fetch("/.netlify/functions/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system: "You are an occupational health clinical decision support system. Analyse surveillance results and flag significant changes. Return JSON only: {flagged: boolean, flag_detail: string}. Be concise — one sentence per flag.",
+          messages: [{ role: "user", content: `Test type: ${event.test_type}. Results: ${JSON.stringify(results)}. Previous result note: none available. Flag if any value is clinically significant (e.g. audiometry threshold shift >10dB at any frequency, FEV1 drop >15%, glucose >7.0 fasting).` }],
+        }),
+      });
+      const data = await resp.json();
+      const text = data.content?.[0]?.text || "{}";
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      setFlagged(parsed.flagged || false);
+      setFlagDetail(parsed.flag_detail || "");
+    } catch(e) {
+      console.warn("AI flag check failed", e);
+    }
+    setAiChecking(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(event.id, {
+      results,
+      flagged,
+      flag_detail: flagDetail,
+      completed_date: new Date().toISOString().slice(0, 10),
+      status: "completed",
+    });
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: C.bgCard, borderRadius: 12, padding: "1.5rem", width: 500, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto" }}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Capture result</div>
+        <div style={{ fontSize: 12, color: C.textSub, marginBottom: "1rem" }}>
+          {person?.first_name} {person?.last_name} · {TEST_TYPES.find(t => t.value === event?.test_type)?.label}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: "1rem" }}>
+          {typeFields.map(f => (
+            <div key={f.key}>
+              <label style={{ fontSize: 11, color: C.textSub, display: "block", marginBottom: 3 }}>{f.label}</label>
+              <input
+                value={results[f.key] || ""}
+                onChange={e => setResults(r => ({ ...r, [f.key]: e.target.value }))}
+                style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginBottom: "1rem" }}>
+          <Btn variant="secondary" size="sm" onClick={checkWithAI} disabled={aiChecking || Object.keys(results).length === 0}>
+            {aiChecking ? "Checking..." : "🤖 Check with AI"}
+          </Btn>
+        </div>
+
+        {flagged && (
+          <div style={{ background: C.amberLight, border: `1px solid ${C.amber}`, borderRadius: 8, padding: "10px 12px", marginBottom: "1rem" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.amber, marginBottom: 4 }}>⚠ AI flagged</div>
+            <div style={{ fontSize: 12, color: C.text }}>{flagDetail}</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginTop: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={flagged} onChange={e => setFlagged(e.target.checked)} />
+              Keep flag on record
+            </label>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={handleSave} disabled={saving}>
+            {saving ? "Saving..." : "Save result"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Main Surveillance Screen ──────────────────────────────────────────────────
+const Surveillance = () => {
+  const { employers, persons, db, refreshData } = useData();
+
+  // Local state for hazard profiles, enrolments, events — loaded from Supabase or mock
+  const [profiles, setProfiles] = useState([]);
+  const [enrolments, setEnrolments] = useState([]); // [{person_id, hazard_profile_id, enrolled_at}]
+  const [events, setEvents] = useState(MOCK_SURVEILLANCE);
+  const [loading, setLoading] = useState(false);
+
+  // UI state
+  const [tab, setTab] = useState("schedule"); // schedule | profiles
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [employerFilter, setEmployerFilter] = useState("all");
+  const [showNewProfile, setShowNewProfile] = useState(false);
+  const [enrolTarget, setEnrolTarget] = useState(null); // profile being enrolled
+  const [captureTarget, setCaptureTarget] = useState(null); // {event, person}
+
+  // Load from Supabase
+  useEffect(() => {
+    if (!db) return;
+    loadSurveillanceData();
+  }, [db]);
+
+  const loadSurveillanceData = async () => {
+    if (!db) return;
+    setLoading(true);
+    try {
+      const [profRes, enrolRes, evtRes] = await Promise.all([
+        db.from("hazard_profile").select("*"),
+        db.from("person_hazard").select("*"),
+        db.from("surveillance_event").select("*&order=scheduled_date.asc"),
+      ]);
+      if (profRes.data?.length) setProfiles(profRes.data);
+      if (enrolRes.data) setEnrolments(enrolRes.data);
+      if (evtRes.data?.length) setEvents(evtRes.data);
+    } catch(e) { console.warn("Surveillance load error", e); }
+    setLoading(false);
+  };
+
+  // Create hazard profile + schedule initial surveillance events
+  const handleCreateProfile = async (profileData) => {
+    try {
+      // 1. Insert profile
+      const profRes = await db?.from("hazard_profile").insert(profileData).select();
+      if (!profRes?.data?.[0]) return;
+      const newProfile = profRes.data[0];
+
+      setProfiles(prev => [...prev, newProfile]);
+      setShowNewProfile(false);
+    } catch(e) {
+      console.warn("Create profile error", e);
+      // Optimistic update for demo mode
+      const mockProfile = { ...profileData, id: `hp_${Date.now()}` };
+      setProfiles(prev => [...prev, mockProfile]);
+      setShowNewProfile(false);
+    }
+  };
+
+  // Save enrolment: upsert person_hazard rows + generate surveillance_event rows
+  const handleSaveEnrolment = async (profileId, personIds) => {
+    const profile = profiles.find(p => p.id === profileId);
+    if (!profile) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const newEnrolments = personIds.map(pid => ({ person_id: pid, hazard_profile_id: profileId, enrolled_at: today }));
+
+    // Generate surveillance events for each person × each test type
+    const newEvents = [];
+    for (const pid of personIds) {
+      for (const testType of (profile.surveillance_types || [])) {
+        const dueDate = new Date();
+        dueDate.setMonth(dueDate.getMonth() + (profile.surveillance_period_months || 12));
+        newEvents.push({
+          person_id: pid,
+          hazard_profile_id: profileId,
+          test_type: testType,
+          scheduled_date: dueDate.toISOString().slice(0, 10),
+          status: "scheduled",
+        });
+      }
+    }
+
+    try {
+      if (db) {
+        await db.from("person_hazard").upsert(newEnrolments, { onConflict: "person_id,hazard_profile_id" });
+        if (newEvents.length) {
+          const evtRes = await db.from("surveillance_event").insert(newEvents).select();
+          if (evtRes.data) setEvents(prev => [...prev, ...evtRes.data]);
+        }
+      }
+    } catch(e) { console.warn("Enrolment error", e); }
+
+    // Optimistic update
+    setEnrolments(prev => {
+      const filtered = prev.filter(e => e.hazard_profile_id !== profileId);
+      return [...filtered, ...newEnrolments];
+    });
+    if (!db) {
+      const mockEvts = newEvents.map((e, i) => ({ ...e, id: `sve_${Date.now()}_${i}` }));
+      setEvents(prev => [...prev, ...mockEvts]);
+    }
+    setEnrolTarget(null);
+  };
+
+  // Capture result
+  const handleSaveResult = async (eventId, resultData) => {
+    try {
+      if (db) {
+        await db.from("surveillance_event").update(resultData).eq("id", eventId);
+      }
+    } catch(e) { console.warn("Result save error", e); }
+    setEvents(prev => prev.map(e => e.id === eventId ? { ...e, ...resultData } : e));
+    setCaptureTarget(null);
+  };
+
+  // Derived filtered events
+  const filteredEvents = events.filter(ev => {
+    const person = persons.find(p => p.id === ev.person_id);
+    const employer = employers.find(e => e.id === person?.employer_id);
+    if (statusFilter !== "all" && ev.status !== statusFilter) return false;
+    if (typeFilter !== "all" && ev.test_type !== typeFilter) return false;
+    if (employerFilter !== "all" && employer?.id !== employerFilter) return false;
+    return true;
+  });
+
+  // KPI counts
+  const scheduled = events.filter(e => e.status === "scheduled").length;
+  const overdue = events.filter(e => e.status === "overdue").length;
+  const completedThisMonth = events.filter(e => {
+    if (e.status !== "completed") return false;
+    const d = new Date(e.completed_date || e.scheduled_date);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+
+  // Enrolled person ids per profile
+  const enrolledFor = (profileId) => enrolments.filter(e => e.hazard_profile_id === profileId).map(e => e.person_id);
+
+  const TAB_STYLE = (active) => ({
+    padding: "6px 14px", fontSize: 13, fontWeight: active ? 600 : 400,
+    color: active ? C.teal : C.textSub, background: "none", border: "none",
+    borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
+    cursor: "pointer",
+  });
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 18, fontWeight: 500 }}>Health surveillance</div>
+        <Btn size="sm" onClick={() => setShowNewProfile(true)}>+ New hazard profile</Btn>
+      </div>
+
+      {/* KPI row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: "1.25rem" }}>
+        <StatCard label="Scheduled" value={scheduled} />
+        <StatCard label="Overdue" value={overdue} color={overdue > 0 ? C.red : C.teal} />
+        <StatCard label="Completed this month" value={completedThisMonth} color={C.teal} />
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: "1.25rem" }}>
+        <button style={TAB_STYLE(tab === "schedule")} onClick={() => setTab("schedule")}>Surveillance schedule</button>
+        <button style={TAB_STYLE(tab === "profiles")} onClick={() => setTab("profiles")}>Hazard profiles</button>
+      </div>
+
+      {/* ── SCHEDULE TAB ─────────────────────────────── */}
+      {tab === "schedule" && (
+        <div>
+          {/* Filters */}
+          <div style={{ display: "flex", gap: 8, marginBottom: "1rem", flexWrap: "wrap" }}>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12 }}>
+              <option value="all">All statuses</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="overdue">Overdue</option>
+              <option value="completed">Completed</option>
+              <option value="waived">Waived</option>
+            </select>
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12 }}>
+              <option value="all">All test types</option>
+              {TEST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <select value={employerFilter} onChange={e => setEmployerFilter(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12 }}>
+              <option value="all">All employers</option>
+              {employers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </div>
+
+          {loading && <div style={{ fontSize: 13, color: C.textSub, padding: "1rem 0" }}>Loading...</div>}
+
+          {filteredEvents.length === 0 && !loading && (
+            <Card style={{ textAlign: "center", padding: "2rem" }}>
+              <div style={{ fontSize: 13, color: C.textSub, marginBottom: 8 }}>No surveillance events found.</div>
+              <div style={{ fontSize: 12, color: C.textTert }}>Create a hazard profile and enrol employees to generate the schedule.</div>
+            </Card>
+          )}
+
+          {filteredEvents.map(ev => {
+            const person = persons.find(p => p.id === ev.person_id);
+            const employer = employers.find(e => e.id === person?.employer_id);
+            const daysUntil = Math.round((new Date(ev.scheduled_date) - new Date()) / 86400000);
+            const isOverdue = daysUntil < 0 && ev.status !== "completed";
+            const statusColor = ev.status === "completed" ? "teal" : ev.status === "overdue" || isOverdue ? "red" : daysUntil <= 30 ? "amber" : "gray";
+
+            return (
+              <Card key={ev.id} style={{ marginBottom: 8, borderLeft: isOverdue ? `3px solid ${C.red}` : ev.status === "completed" ? `3px solid ${C.teal}` : daysUntil <= 30 ? `3px solid ${C.amber}` : `3px solid transparent` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{person?.first_name} {person?.last_name}</div>
+                    <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name} · {TEST_TYPES.find(t => t.value === ev.test_type)?.label || ev.test_type}</div>
+                    <div style={{ fontSize: 11, color: C.textTert, marginTop: 2 }}>
+                      Due: {new Date(ev.scheduled_date).toLocaleDateString("en-ZA")}
+                      {ev.status !== "completed" && (
+                        <span style={{ color: isOverdue ? C.red : daysUntil <= 30 ? C.amber : C.textTert, marginLeft: 6 }}>
+                          {isOverdue ? `${Math.abs(daysUntil)}d overdue` : `in ${daysUntil}d`}
+                        </span>
+                      )}
+                      {ev.status === "completed" && ev.completed_date && (
+                        <span style={{ color: C.teal, marginLeft: 6 }}>Completed {new Date(ev.completed_date).toLocaleDateString("en-ZA")}</span>
+                      )}
+                    </div>
+                    {ev.flagged && (
+                      <div style={{ fontSize: 11, color: C.amber, marginTop: 4, background: C.amberLight, padding: "2px 8px", borderRadius: 4, display: "inline-block" }}>
+                        ⚠ {ev.flag_detail}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", marginLeft: 12 }}>
+                    <Badge color={statusColor}>{ev.status === "scheduled" && isOverdue ? "overdue" : ev.status}</Badge>
+                    {ev.status !== "completed" && (
+                      <Btn size="sm" variant="ghost" onClick={() => setCaptureTarget({ event: ev, person })}>Capture result</Btn>
+                    )}
+                    {ev.status === "completed" && (
+                      <span style={{ fontSize: 11, color: C.textTert }}>✓ Done</span>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── PROFILES TAB ─────────────────────────────── */}
+      {tab === "profiles" && (
+        <div>
+          {profiles.length === 0 && (
+            <Card style={{ textAlign: "center", padding: "2rem" }}>
+              <div style={{ fontSize: 13, color: C.textSub, marginBottom: 8 }}>No hazard profiles yet.</div>
+              <div style={{ fontSize: 12, color: C.textTert, marginBottom: "1rem" }}>Profiles define which tests are required and how often. Create one per exposure group.</div>
+              <Btn onClick={() => setShowNewProfile(true)}>+ Create first profile</Btn>
+            </Card>
+          )}
+
+          {profiles.map(prof => {
+            const employer = employers.find(e => e.id === prof.employer_id);
+            const enrolled = enrolledFor(prof.id);
+            const profEvents = events.filter(e => e.hazard_profile_id === prof.id);
+            const profOverdue = profEvents.filter(e => {
+              const d = Math.round((new Date(e.scheduled_date) - new Date()) / 86400000);
+              return d < 0 && e.status !== "completed";
+            }).length;
+
+            return (
+              <Card key={prof.id} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{prof.name}</div>
+                    <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{employer?.name}</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      {(prof.surveillance_types || []).map(t => (
+                        <span key={t} style={{ fontSize: 11, background: C.tealLight, color: C.teal, padding: "2px 8px", borderRadius: 20 }}>
+                          {TEST_TYPES.find(tt => tt.value === t)?.label || t}
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textTert, marginTop: 6 }}>
+                      Every {prof.surveillance_period_months || 12} months · {enrolled.length} employee{enrolled.length !== 1 ? "s" : ""} enrolled
+                      {profOverdue > 0 && <span style={{ color: C.red, marginLeft: 8 }}>· {profOverdue} overdue</span>}
+                    </div>
+                    {(prof.hazard_codes || []).length > 0 && (
+                      <div style={{ fontSize: 11, color: C.textTert, marginTop: 4 }}>
+                        Hazards: {prof.hazard_codes.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                    <Btn size="sm" onClick={() => setEnrolTarget(prof)}>Manage enrolment</Btn>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modals */}
+      {showNewProfile && (
+        <HazardProfileModal employers={employers} onSave={handleCreateProfile} onClose={() => setShowNewProfile(false)} />
+      )}
+      {enrolTarget && (
+        <EnrolModal
+          profile={enrolTarget}
+          persons={persons}
+          enrolledIds={enrolledFor(enrolTarget.id)}
+          onSave={handleSaveEnrolment}
+          onClose={() => setEnrolTarget(null)}
+        />
+      )}
+      {captureTarget && (
+        <ResultCaptureModal
+          event={captureTarget.event}
+          person={captureTarget.person}
+          onSave={handleSaveResult}
+          onClose={() => setCaptureTarget(null)}
+        />
+      )}
+    </div>
+  );
+};
 
 const FitnessCerts = () => {
   const { fitnessCerts, persons, employers } = useData();
