@@ -4184,10 +4184,16 @@ export default function App() {
   const encounters = liveEncounters ?? MOCK_ENCOUNTERS;
   const fitnessCerts = liveFitnessCerts ?? MOCK_FITNESS_CERTS;
 
-  // Register service worker
+  // Unregister any stale service workers on startup
+  // SW was caching old bundles and causing blank pages — disabled until properly implemented
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(reg => reg.unregister());
+      });
+      caches.keys().then(names => {
+        names.forEach(name => caches.delete(name));
+      });
     }
   }, []);
 
