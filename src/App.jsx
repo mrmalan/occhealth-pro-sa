@@ -2374,41 +2374,347 @@ const DrugTesting = () => {
   );
 };
 
-const EmployerPortal = ({ session }) => (
-  <div>
-    <div style={{ background: C.tealDark, borderRadius: 10, padding: "1.25rem 1.5rem", marginBottom: "1.25rem", color: "#fff" }}>
-      <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#5DCAA5", marginBottom: 4 }}>Employer portal</div>
-      <div style={{ fontSize: 18, fontWeight: 500 }}>Cape Construction (Pty) Ltd</div>
-      <div style={{ fontSize: 13, color: "#9FE1CB", marginTop: 2 }}>Aggregate compliance view — no individual clinical records</div>
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: "1.25rem" }}>
-      <StatCard label="Surveillance compliance" value="67%" color={C.amber} />
-      <StatCard label="Fitness certs current" value="2/2" color={C.teal} />
-      <StatCard label="IOD incidents (MTD)" value="1" color={C.amber} />
-      <StatCard label="Drug tests (MTD)" value="1" sub="0 positives" />
-    </div>
-    <Card style={{ background: C.tealLight, border: `1px solid ${C.tealMid}`, marginBottom: "1rem" }}>
-      <div style={{ fontSize: 12, color: C.tealDark, lineHeight: 1.6 }}>
-        <strong>Confidentiality notice:</strong> This portal shows aggregate workforce health metrics only. Individual clinical records, fitness status, drug test results, and medical information are confidential and accessible to occupational health practitioners only.
-      </div>
-    </Card>
-    <SectionTitle>Surveillance compliance by test type</SectionTitle>
-    {[{ type: "Audiometry", due: 2, done: 1 }, { type: "Spirometry", due: 1, done: 0 }].map(row => (
-      <Card key={row.type} style={{ marginBottom: 8 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 13 }}>{row.type}</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: C.textSub }}>{row.done}/{row.due} complete</span>
-            <Badge color={row.done === row.due ? "teal" : row.done === 0 ? "red" : "amber"}>{Math.round(row.done / row.due * 100)}%</Badge>
-          </div>
-        </div>
-        <div style={{ marginTop: 8, height: 6, background: C.bgSub, borderRadius: 3, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${row.done / row.due * 100}%`, background: row.done === row.due ? C.teal : C.amber, borderRadius: 3 }} />
-        </div>
-      </Card>
-    ))}
+// ─── EMPLOYER PORTAL ──────────────────────────────────────────────────────────
+
+// Mini bar chart component — no external deps
+const MiniBar = ({ value, max, color = C.teal }) => (
+  <div style={{ height: 6, background: C.bgSub, borderRadius: 3, overflow: "hidden", marginTop: 6 }}>
+    <div style={{ height: "100%", width: `${max > 0 ? Math.min(100, (value / max) * 100) : 0}%`, background: color, borderRadius: 3, transition: "width 0.4s ease" }} />
   </div>
 );
+
+// Sparkline-style month bars
+const MonthBars = ({ data, valueKey, color = C.teal, height = 40 }) => {
+  const max = Math.max(...data.map(d => Number(d[valueKey]) || 0), 1);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height }}>
+      {data.map((d, i) => {
+        const val = Number(d[valueKey]) || 0;
+        const pct = val / max;
+        const month = d.month ? new Date(d.month).toLocaleDateString("en-ZA", { month: "short" }) : "";
+        return (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+            <div title={`${month}: ${val}`} style={{ width: "100%", height: Math.max(3, pct * (height - 14)), background: color, borderRadius: "2px 2px 0 0", transition: "height 0.4s ease" }} />
+            <div style={{ fontSize: 9, color: C.textTert, whiteSpace: "nowrap" }}>{month}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const EmployerPortal = ({ session }) => {
+  const { employers, db } = useData();
+
+  // Employer selector — portal can be scoped to one employer
+  const [selEmployerId, setSelEmployerId] = useState(employers[0]?.id || "");
+  const selEmployer = employers.find(e => e.id === selEmployerId) || employers[0];
+
+  // Period filter
+  const [period, setPeriod] = useState("6"); // months back
+
+  // Data from materialised views
+  const [survData, setSurvData] = useState([]);
+  const [iodData, setIodData] = useState([]);
+  const [fitnessData, setFitnessData] = useState(null);
+  const [drugData, setDrugData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState(null);
+
+  // Mock data for demo mode
+  const MOCK_SURV = [
+    { employer_id: selEmployerId, month: "2026-04-01", test_type: "audiometry", total_due: 8, completed: 7, overdue: 1, compliance_pct: 87.5 },
+    { employer_id: selEmployerId, month: "2026-04-01", test_type: "spirometry", total_due: 5, completed: 5, overdue: 0, compliance_pct: 100 },
+    { employer_id: selEmployerId, month: "2026-05-01", test_type: "audiometry", total_due: 6, completed: 4, overdue: 2, compliance_pct: 66.7 },
+    { employer_id: selEmployerId, month: "2026-05-01", test_type: "spirometry", total_due: 4, completed: 4, overdue: 0, compliance_pct: 100 },
+    { employer_id: selEmployerId, month: "2026-06-01", test_type: "audiometry", total_due: 10, completed: 6, overdue: 4, compliance_pct: 60 },
+    { employer_id: selEmployerId, month: "2026-06-01", test_type: "spirometry", total_due: 6, completed: 3, overdue: 3, compliance_pct: 50 },
+    { employer_id: selEmployerId, month: "2026-06-01", test_type: "vision", total_due: 4, completed: 4, overdue: 0, compliance_pct: 100 },
+  ];
+  const MOCK_IOD = [
+    { employer_id: selEmployerId, month: "2026-04-01", iod_count: 1, lost_time_injuries: 0, fatalities: 0, claims_submitted: 1, claims_paid: 1 },
+    { employer_id: selEmployerId, month: "2026-05-01", iod_count: 3, lost_time_injuries: 1, fatalities: 0, claims_submitted: 2, claims_paid: 0 },
+    { employer_id: selEmployerId, month: "2026-06-01", iod_count: 2, lost_time_injuries: 0, fatalities: 0, claims_submitted: 2, claims_paid: 0 },
+  ];
+  const MOCK_FITNESS = { employer_id: selEmployerId, total_certs: 18, current: 14, expired: 2, expiring_30_days: 2 };
+  const MOCK_DRUG = [
+    { employer_id: selEmployerId, month: "2026-04-01", tests_conducted: 12, positives: 0, refusals: 0, positivity_rate: 0 },
+    { employer_id: selEmployerId, month: "2026-05-01", tests_conducted: 15, positives: 1, refusals: 0, positivity_rate: 6.7 },
+    { employer_id: selEmployerId, month: "2026-06-01", tests_conducted: 10, positives: 0, refusals: 1, positivity_rate: 0 },
+  ];
+
+  const loadPortalData = async () => {
+    if (!selEmployer) return;
+    setLoading(true);
+    const eid = selEmployer.id;
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - Number(period));
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+    if (!USE_MOCK && db) {
+      try {
+        const [s, i, f, d] = await Promise.all([
+          db.from("employer_surveillance_summary").select(`employer_id=eq.${eid}&month=gte.${cutoffStr}&order=month.asc`),
+          db.from("employer_iod_summary").select(`employer_id=eq.${eid}&month=gte.${cutoffStr}&order=month.asc`),
+          db.from("employer_fitness_summary").select(`employer_id=eq.${eid}`),
+          db.from("employer_drug_test_summary").select(`employer_id=eq.${eid}&month=gte.${cutoffStr}&order=month.asc`),
+        ]);
+        setSurvData(s.data || []);
+        setIodData(i.data || []);
+        setFitnessData(f.data?.[0] || null);
+        setDrugData(d.data || []);
+      } catch(e) {
+        console.warn("Portal data load error:", e);
+        setSurvData(MOCK_SURV); setIodData(MOCK_IOD); setFitnessData(MOCK_FITNESS); setDrugData(MOCK_DRUG);
+      }
+    } else {
+      setSurvData(MOCK_SURV); setIodData(MOCK_IOD); setFitnessData(MOCK_FITNESS); setDrugData(MOCK_DRUG);
+    }
+    setLastRefreshed(new Date());
+    setLoading(false);
+  };
+
+  useEffect(() => { loadPortalData(); }, [selEmployer?.id, period, db]);
+
+  // ── Derived KPIs ──
+  // Surveillance: overall compliance across all test types in period
+  const totalDue = survData.reduce((s, r) => s + Number(r.total_due || 0), 0);
+  const totalCompleted = survData.reduce((s, r) => s + Number(r.completed || 0), 0);
+  const overallCompliance = totalDue > 0 ? Math.round((totalCompleted / totalDue) * 100) : null;
+  const totalOverdue = survData.reduce((s, r) => s + Number(r.overdue || 0), 0);
+
+  // IOD: totals for period
+  const totalIOD = iodData.reduce((s, r) => s + Number(r.iod_count || 0), 0);
+  const totalLTI = iodData.reduce((s, r) => s + Number(r.lost_time_injuries || 0), 0);
+  const totalFatalities = iodData.reduce((s, r) => s + Number(r.fatalities || 0), 0);
+
+  // Surveillance by test type (latest period collapsed)
+  const survByType = survData.reduce((acc, r) => {
+    if (!acc[r.test_type]) acc[r.test_type] = { total_due: 0, completed: 0, overdue: 0 };
+    acc[r.test_type].total_due  += Number(r.total_due || 0);
+    acc[r.test_type].completed  += Number(r.completed || 0);
+    acc[r.test_type].overdue    += Number(r.overdue || 0);
+    return acc;
+  }, {});
+
+  // Drug: totals
+  const totalTests = drugData.reduce((s, r) => s + Number(r.tests_conducted || 0), 0);
+  const totalPositives = drugData.reduce((s, r) => s + Number(r.positives || 0), 0);
+  const totalRefusals = drugData.reduce((s, r) => s + Number(r.refusals || 0), 0);
+  const overallPositivity = totalTests > 0 ? ((totalPositives / totalTests) * 100).toFixed(1) : "0.0";
+
+  // IOD months for sparkline
+  const iodMonths = iodData.slice(-6);
+  const drugMonths = drugData.slice(-6);
+
+  const complianceColor = overallCompliance === null ? C.textTert : overallCompliance >= 90 ? C.teal : overallCompliance >= 70 ? C.amber : C.red;
+
+  const PERIOD_OPTIONS = [
+    { value: "3", label: "Last 3 months" },
+    { value: "6", label: "Last 6 months" },
+    { value: "12", label: "Last 12 months" },
+  ];
+
+  const TEST_LABEL = { audiometry: "Audiometry", spirometry: "Spirometry", vision: "Vision", bio_monitor: "Bio monitoring", blood_pressure: "Blood pressure", glucose: "Glucose", lung_function: "Lung function" };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ background: C.tealDark, borderRadius: 10, padding: "1.25rem 1.5rem", marginBottom: "1.25rem", color: "#fff" }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#5DCAA5", marginBottom: 6 }}>Employer portal</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            {employers.length > 1 ? (
+              <select
+                value={selEmployerId}
+                onChange={e => setSelEmployerId(e.target.value)}
+                style={{ fontSize: 18, fontWeight: 500, background: "transparent", color: "#fff", border: "none", outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                {employers.map(e => <option key={e.id} value={e.id} style={{ color: C.text, background: C.bgCard }}>{e.name}</option>)}
+              </select>
+            ) : (
+              <div style={{ fontSize: 18, fontWeight: 500 }}>{selEmployer?.name || "—"}</div>
+            )}
+            <div style={{ fontSize: 13, color: "#9FE1CB", marginTop: 2 }}>
+              Aggregate compliance view · No individual clinical records
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <select
+              value={period}
+              onChange={e => setPeriod(e.target.value)}
+              style={{ fontSize: 12, padding: "5px 10px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", outline: "none" }}>
+              {PERIOD_OPTIONS.map(o => <option key={o.value} value={o.value} style={{ color: C.text, background: C.bgCard }}>{o.label}</option>)}
+            </select>
+            <button
+              onClick={loadPortalData}
+              disabled={loading}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer" }}>
+              {loading ? "Loading..." : "⟳ Refresh"}
+            </button>
+          </div>
+        </div>
+        {lastRefreshed && (
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 8 }}>
+            Last refreshed: {lastRefreshed.toLocaleTimeString("en-ZA")}
+          </div>
+        )}
+      </div>
+
+      {/* Confidentiality notice */}
+      <Card style={{ background: C.tealLight, border: `1px solid ${C.tealMid}`, marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 12, color: C.tealDark, lineHeight: 1.6 }}>
+          <strong>Confidentiality notice:</strong> This portal displays aggregate workforce health metrics only. Individual clinical records, fitness assessments, test results, and personal medical information are confidential and accessible to registered occupational health practitioners only, in accordance with POPIA and the National Health Act.
+        </div>
+      </Card>
+
+      {/* ── KPI ROW ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: "1.5rem" }}>
+        {/* Surveillance compliance */}
+        <Card>
+          <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Surveillance compliance</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: complianceColor, lineHeight: 1 }}>
+            {overallCompliance !== null ? `${overallCompliance}%` : "—"}
+          </div>
+          <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>
+            {totalCompleted}/{totalDue} tests complete
+            {totalOverdue > 0 && <span style={{ color: C.red, marginLeft: 8 }}>· {totalOverdue} overdue</span>}
+          </div>
+          <MiniBar value={totalCompleted} max={totalDue} color={complianceColor} />
+        </Card>
+
+        {/* Fitness certificates */}
+        <Card>
+          <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Fitness certs current</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: fitnessData ? (fitnessData.expired > 0 ? C.amber : C.teal) : C.textTert, lineHeight: 1 }}>
+            {fitnessData ? `${fitnessData.current}/${fitnessData.total_certs}` : "—"}
+          </div>
+          <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>
+            {fitnessData?.expired > 0 && <span style={{ color: C.red }}>{fitnessData.expired} expired · </span>}
+            {fitnessData?.expiring_30_days > 0 && <span style={{ color: C.amber }}>{fitnessData.expiring_30_days} expiring in 30 days</span>}
+            {fitnessData && fitnessData.expired === 0 && fitnessData.expiring_30_days === 0 && <span style={{ color: C.teal }}>All current</span>}
+          </div>
+          {fitnessData && <MiniBar value={fitnessData.current} max={fitnessData.total_certs} color={fitnessData.expired > 0 ? C.amber : C.teal} />}
+        </Card>
+
+        {/* IOD */}
+        <Card>
+          <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>IOD incidents ({PERIOD_OPTIONS.find(o => o.value === period)?.label})</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: totalIOD === 0 ? C.teal : totalFatalities > 0 ? C.red : C.amber, lineHeight: 1 }}>
+            {totalIOD}
+          </div>
+          <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>
+            {totalLTI > 0 && <span style={{ color: C.amber }}>{totalLTI} lost-time · </span>}
+            {totalFatalities > 0 && <span style={{ color: C.red }}>{totalFatalities} fatalities · </span>}
+            {totalIOD === 0 ? <span style={{ color: C.teal }}>Zero incidents</span> : `${iodData.reduce((s,r) => s + Number(r.claims_submitted||0), 0)} claims submitted`}
+          </div>
+          {iodMonths.length > 0 && <div style={{ marginTop: 10 }}><MonthBars data={iodMonths} valueKey="iod_count" color={C.amber} height={36} /></div>}
+        </Card>
+
+        {/* Drug testing */}
+        <Card>
+          <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Drug & alcohol testing</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: Number(overallPositivity) > 0 ? C.red : C.teal, lineHeight: 1 }}>
+            {overallPositivity}%
+          </div>
+          <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>
+            positivity rate · {totalTests} tests · {totalPositives} positive{totalPositives !== 1 ? "s" : ""}
+            {totalRefusals > 0 && <span style={{ color: C.amber }}> · {totalRefusals} refusal{totalRefusals !== 1 ? "s" : ""}</span>}
+          </div>
+          {drugMonths.length > 0 && <div style={{ marginTop: 10 }}><MonthBars data={drugMonths} valueKey="tests_conducted" color={C.teal} height={36} /></div>}
+        </Card>
+      </div>
+
+      {/* ── SURVEILLANCE BY TEST TYPE ── */}
+      {Object.keys(survByType).length > 0 && (
+        <>
+          <SectionTitle>Surveillance compliance by test type</SectionTitle>
+          {Object.entries(survByType).map(([type, counts]) => {
+            const pct = counts.total_due > 0 ? Math.round((counts.completed / counts.total_due) * 100) : 0;
+            const color = pct >= 90 ? "teal" : pct >= 70 ? "amber" : "red";
+            return (
+              <Card key={type} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{TEST_LABEL[type] || type}</div>
+                    <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>
+                      {counts.completed}/{counts.total_due} complete
+                      {counts.overdue > 0 && <span style={{ color: C.red, marginLeft: 8 }}>{counts.overdue} overdue</span>}
+                    </div>
+                  </div>
+                  <Badge color={color}>{pct}%</Badge>
+                </div>
+                <MiniBar value={counts.completed} max={counts.total_due} color={pct >= 90 ? C.teal : pct >= 70 ? C.amber : C.red} />
+              </Card>
+            );
+          })}
+        </>
+      )}
+
+      {/* ── IOD MONTHLY BREAKDOWN ── */}
+      {iodData.length > 0 && (
+        <>
+          <SectionTitle style={{ marginTop: "1.25rem" }}>IOD incidents by month</SectionTitle>
+          {iodData.map((row, i) => {
+            const month = row.month ? new Date(row.month).toLocaleDateString("en-ZA", { month: "long", year: "numeric" }) : "";
+            return (
+              <Card key={i} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{month}</div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    {Number(row.lost_time_injuries) > 0 && <Badge color="amber">{row.lost_time_injuries} LTI</Badge>}
+                    {Number(row.fatalities) > 0 && <Badge color="red">{row.fatalities} fatal</Badge>}
+                    <Badge color={Number(row.iod_count) === 0 ? "teal" : "amber"}>{row.iod_count} incident{Number(row.iod_count) !== 1 ? "s" : ""}</Badge>
+                  </div>
+                </div>
+                {(Number(row.claims_submitted) > 0) && (
+                  <div style={{ fontSize: 11, color: C.textSub, marginTop: 4 }}>
+                    {row.claims_submitted} claim{Number(row.claims_submitted) !== 1 ? "s" : ""} submitted · {row.claims_paid} paid
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </>
+      )}
+
+      {/* ── DRUG TEST MONTHLY BREAKDOWN ── */}
+      {drugData.length > 0 && (
+        <>
+          <SectionTitle style={{ marginTop: "1.25rem" }}>Drug & alcohol tests by month</SectionTitle>
+          {drugData.map((row, i) => {
+            const month = row.month ? new Date(row.month).toLocaleDateString("en-ZA", { month: "long", year: "numeric" }) : "";
+            const positivity = Number(row.positivity_rate) || 0;
+            return (
+              <Card key={i} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{month}</div>
+                    <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>
+                      {row.tests_conducted} test{Number(row.tests_conducted) !== 1 ? "s" : ""}
+                      {Number(row.refusals) > 0 && <span style={{ color: C.amber }}> · {row.refusals} refusal{Number(row.refusals) !== 1 ? "s" : ""}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {Number(row.positives) > 0 && <Badge color="red">{row.positives} positive</Badge>}
+                    <Badge color={positivity === 0 ? "teal" : positivity < 5 ? "amber" : "red"}>{positivity.toFixed(1)}%</Badge>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </>
+      )}
+
+      {/* Empty state */}
+      {!loading && survData.length === 0 && iodData.length === 0 && !fitnessData && drugData.length === 0 && (
+        <Card style={{ textAlign: "center", padding: "2rem" }}>
+          <div style={{ fontSize: 13, color: C.textSub, marginBottom: 8 }}>No data available for this employer and period.</div>
+          <div style={{ fontSize: 12, color: C.textTert }}>Data populates as the OHP records encounters, surveillance results, IOD incidents, and drug tests.</div>
+        </Card>
+      )}
+    </div>
+  );
+};
 
 const Settings = ({ session }) => {
   const meta = session.user.user_metadata;
