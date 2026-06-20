@@ -1232,8 +1232,10 @@ const OnboardingWizard = ({ session, onComplete }) => {
   const saveTenant = async () => {
     if (!tenant.name) { setError("Practice name is required"); return; }
     setSaving(true); setError("");
-    const { data, error: err } = await db.from("tenant").insert({ ...tenant, created_at: new Date().toISOString() });
-    if (err || !data?.[0]) { setError("Failed to save practice details. Please try again."); setSaving(false); return; }
+    const tenantData = { name: tenant.name, type: tenant.type, created_at: new Date().toISOString() };
+    if (tenant.coida_registration) tenantData.coida_registration = tenant.coida_registration;
+    const { data, error: err } = await db.from("tenant").insert(tenantData);
+    if (err || !data?.[0]) { setError(`Failed to save practice details: ${JSON.stringify(err)}`); setSaving(false); return; }
     setTenantId(data[0].id);
     setSaving(false);
     setStep(2);
@@ -1462,10 +1464,29 @@ const OnboardingWizard = ({ session, onComplete }) => {
 };
 
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+const PasswordInput = ({ value, onChange, placeholder, onKeyDown, label, hint }) => {
+  const [show, setShow] = useState(false);
+  const inputStyle = { width: "100%", padding: "9px 40px 9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 14, outline: "none", fontFamily: "inherit" };
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>
+        {label} {hint && <span style={{ color: C.textTert }}>{hint}</span>}
+      </div>
+      <div style={{ position: "relative" }}>
+        <input type={show ? "text" : "password"} style={inputStyle} value={value} onChange={onChange} placeholder={placeholder} onKeyDown={onKeyDown} />
+        <button onClick={() => setShow(s => !s)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.textTert, fontSize: 16, lineHeight: 1 }}>
+          {show ? "🙈" : "👁"}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const LoginScreen = ({ onLogin }) => {
-  const [mode, setMode] = useState("login"); // login | signup
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1475,16 +1496,11 @@ const LoginScreen = ({ onLogin }) => {
   const handleLogin = async () => {
     if (!email || !password) { setError("Enter email and password"); return; }
     setLoading(true); setError("");
-    if (USE_MOCK) {
-      onLogin(MOCK_SESSION);
-      setLoading(false);
-      return;
-    }
+    if (USE_MOCK) { onLogin(MOCK_SESSION); setLoading(false); return; }
     const data = await auth.signIn(email, password);
     if (data.error || !data.access_token) {
       setError(data.error_description || data.message || "Invalid email or password");
-      setLoading(false);
-      return;
+      setLoading(false); return;
     }
     const user = await auth.getUser(data.access_token);
     onLogin({ ...data, user });
@@ -1494,10 +1510,10 @@ const LoginScreen = ({ onLogin }) => {
   const handleSignup = async () => {
     if (!email || !password || !fullName) { setError("All fields required"); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
+    if (password !== confirmPassword) { setError("Passwords do not match"); return; }
     setLoading(true); setError("");
     const data = await auth.signUp(email, password, { full_name: fullName, role: "ohp", onboarding_complete: false });
     if (data.error) { setError(data.error_description || data.message || "Signup failed"); setLoading(false); return; }
-    // Auto sign in after signup
     const signInData = await auth.signIn(email, password);
     if (signInData.access_token) {
       const user = await auth.getUser(signInData.access_token);
@@ -1522,11 +1538,10 @@ const LoginScreen = ({ onLogin }) => {
           </div>
         )}
 
-        {/* Tab toggle */}
         {!USE_MOCK && (
           <div style={{ display: "flex", background: C.bgSub, borderRadius: 8, padding: 3, marginBottom: "1.25rem" }}>
             {["login","signup"].map(m => (
-              <button key={m} onClick={() => { setMode(m); setError(""); }} style={{ flex: 1, padding: "6px", borderRadius: 6, border: "none", background: mode === m ? "#fff" : "transparent", color: mode === m ? C.text : C.textSub, fontSize: 13, fontWeight: mode === m ? 500 : 400, cursor: "pointer", boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+              <button key={m} onClick={() => { setMode(m); setError(""); setConfirmPassword(""); }} style={{ flex: 1, padding: "6px", borderRadius: 6, border: "none", background: mode === m ? "#fff" : "transparent", color: mode === m ? C.text : C.textSub, fontSize: 13, fontWeight: mode === m ? 500 : 400, cursor: "pointer", boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
                 {m === "login" ? "Sign in" : "Create account"}
               </button>
             ))}
@@ -1542,12 +1557,27 @@ const LoginScreen = ({ onLogin }) => {
 
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Email</div>
-          <input type="email" style={inputStyle} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@practice.co.za" onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleSignup())} />
+          <input type="email" style={inputStyle} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@practice.co.za" onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : undefined)} />
         </div>
-        <div style={{ marginBottom: "1rem" }}>
-          <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Password {mode === "signup" && <span style={{ color: C.textTert }}>(min 8 characters)</span>}</div>
-          <input type="password" style={inputStyle} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleSignup())} />
-        </div>
+
+        <PasswordInput
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="••••••••"
+          label="Password"
+          hint={mode === "signup" ? "(min 8 characters)" : ""}
+          onKeyDown={e => e.key === "Enter" && mode === "login" && handleLogin()}
+        />
+
+        {mode === "signup" && !USE_MOCK && (
+          <PasswordInput
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+            placeholder="••••••••"
+            label="Confirm password"
+            onKeyDown={e => e.key === "Enter" && handleSignup()}
+          />
+        )}
 
         {error && <div style={{ fontSize: 12, color: C.red, marginBottom: 10, background: "#FEF2F2", padding: "8px 10px", borderRadius: 6 }}>{error}</div>}
 
