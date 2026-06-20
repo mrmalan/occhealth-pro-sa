@@ -426,9 +426,56 @@ const Textarea = ({ value, onChange, rows = 3, placeholder = "" }) => (
 
 // ─── ENCOUNTER DETAIL VIEW ────────────────────────────────────────────────────
 const EncounterDetail = ({ enc, onBack, session }) => {
-  const person = MOCK_PERSONS.find(p => p.id === enc.person_id);
-  const employer = MOCK_EMPLOYERS.find(e => e.id === enc.employer_id);
-  const fc = MOCK_FITNESS_CERTS.find(f => f.encounter_id === enc.id);
+  const { persons, employers, fitnessCerts } = useData();
+  const person = persons.find(p => p.id === enc.person_id);
+  const employer = employers.find(e => e.id === enc.employer_id);
+  const fc = fitnessCerts.find(f => f.encounter_id === enc.id);
+  const [printing, setPrinting] = useState(false);
+
+  const printCert = async () => {
+    if (!fc) return;
+    setPrinting(true);
+    try {
+      const meta = session?.user?.user_metadata || {};
+      const payload = {
+        cert_id: fc.id,
+        practice_name: meta.tenant_name || "OccHealth Pro SA",
+        person_name: person ? `${person.first_name} ${person.last_name}` : "",
+        employee_number: person?.employee_number || "",
+        employer_name: employer?.name || "",
+        role_category: fc.role_category || person?.job_title || "",
+        date_of_birth: person?.date_of_birth || "",
+        site: enc.site || employer?.name || "",
+        fitness_status: fc.fitness_status,
+        restrictions: fc.restrictions || [],
+        valid_from: fc.valid_from,
+        valid_until: fc.valid_until,
+        validity_period: (() => {
+          if (!fc.valid_from || !fc.valid_until) return "12 months";
+          const months = Math.round((new Date(fc.valid_until) - new Date(fc.valid_from)) / (1000 * 60 * 60 * 24 * 30));
+          return `${months} months`;
+        })(),
+        notes: fc.notes || enc.assessment || "",
+        practitioner_name: enc.signed_by || meta.full_name || "",
+        qualification: meta.qualification || "",
+        sanc_number: meta.sanc_number || "",
+        signed_at: fc.valid_from,
+      };
+      const res = await fetch("/.netlify/functions/fitness-cert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch(e) {
+      alert("Failed to generate certificate: " + e.message);
+    }
+    setPrinting(false);
+  };
   return (
     <div>
       <Btn variant="ghost" size="sm" onClick={onBack} style={{ marginBottom: "1rem" }}>← Back</Btn>
@@ -481,7 +528,7 @@ const EncounterDetail = ({ enc, onBack, session }) => {
                 <div style={{ fontSize: 12, color: C.teal }}>Valid: {new Date(fc.valid_from).toLocaleDateString("en-ZA")} – {new Date(fc.valid_until).toLocaleDateString("en-ZA")}</div>
                 {fc.restrictions?.length > 0 && <div style={{ fontSize: 12, color: C.teal, marginTop: 2 }}>Restrictions: {fc.restrictions.join(", ")}</div>}
               </div>
-              <Btn size="sm" variant="ghost" style={{ borderColor: C.teal, color: C.teal }}>Print cert</Btn>
+              <Btn size="sm" variant="ghost" onClick={printCert} disabled={printing} style={{ borderColor: C.teal, color: C.teal }}>{printing ? "Generating..." : "Print cert"}</Btn>
             </div>
           </Card>
         </>
