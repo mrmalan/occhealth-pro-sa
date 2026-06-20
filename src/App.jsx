@@ -145,8 +145,9 @@ const StatCard = ({ label, value, sub, color = C.teal }) => (
 
 const Dashboard = ({ session, navigate }) => {
   const meta = session.user.user_metadata;
+  const { encounters, fitnessCerts, employers, persons } = useData();
   const overdue = MOCK_SURVEILLANCE.filter(s => s.status === "overdue").length;
-  const certsExpiring = MOCK_FITNESS_CERTS.filter(fc => {
+  const certsExpiring = fitnessCerts.filter(fc => {
     const days = (new Date(fc.valid_until) - new Date()) / 86400000;
     return days < 30 && days > 0;
   }).length;
@@ -168,18 +169,18 @@ const Dashboard = ({ session, navigate }) => {
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: "1.5rem" }}>
-        <StatCard label="Employers" value={MOCK_EMPLOYERS.length} />
-        <StatCard label="Employees" value={MOCK_PERSONS.length} />
+        <StatCard label="Employers" value={employers.length} />
+        <StatCard label="Employees" value={persons.length} />
         <StatCard label="Surveillance due" value={MOCK_SURVEILLANCE.filter(s => s.status !== "completed").length} color={overdue > 0 ? C.amber : C.teal} />
-        <StatCard label="Encounters this month" value={MOCK_ENCOUNTERS.length} />
-        <StatCard label="Active fitness certs" value={MOCK_FITNESS_CERTS.filter(f => !f.superseded).length} />
+        <StatCard label="Encounters this month" value={encounters.length} />
+        <StatCard label="Active fitness certs" value={fitnessCerts.filter(f => !f.superseded).length} />
         <StatCard label="Open IOD cases" value={MOCK_IOD.length} color={MOCK_IOD.length > 0 ? C.amber : C.teal} />
       </div>
 
       <SectionTitle>Recent activity</SectionTitle>
-      {[...MOCK_ENCOUNTERS].reverse().map(enc => {
-        const person = MOCK_PERSONS.find(p => p.id === enc.person_id);
-        const employer = MOCK_EMPLOYERS.find(e => e.id === enc.employer_id);
+      {[...encounters].reverse().slice(0, 5).map(enc => {
+        const person = persons.find(p => p.id === enc.person_id);
+        const employer = employers.find(e => e.id === enc.employer_id);
         return (
           <Card key={enc.id} style={{ marginBottom: 8, cursor: "pointer" }} onClick={() => navigate("encounters")}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -200,9 +201,26 @@ const Dashboard = ({ session, navigate }) => {
 };
 
 const Employers = ({ navigate }) => {
+  const { employers, persons: allPersons, db, refreshData } = useData();
   const [sel, setSel] = useState(null);
+  const [showAddEmployer, setShowAddEmployer] = useState(false);
+  const [newEmp, setNewEmp] = useState({ name: "", coida_ref: "", industry_class: "", coida_insurer: "compensation_fund", contact_email: "" });
+  const [saving, setSaving] = useState(false);
+
+  const handleAddEmployer = async () => {
+    if (!newEmp.name) return;
+    setSaving(true);
+    if (!USE_MOCK && db) {
+      await db.from("employer").insert({ ...newEmp, created_at: new Date().toISOString() });
+      await refreshData();
+    }
+    setShowAddEmployer(false);
+    setNewEmp({ name: "", coida_ref: "", industry_class: "", coida_insurer: "compensation_fund", contact_email: "" });
+    setSaving(false);
+  };
+
   if (sel) {
-    const persons = MOCK_PERSONS.filter(p => p.employer_id === sel.id);
+    const persons = allPersons.filter(p => p.employer_id === sel.id);
     return (
       <div>
         <Btn variant="ghost" size="sm" onClick={() => setSel(null)} style={{ marginBottom: "1rem" }}>← Back</Btn>
@@ -223,13 +241,31 @@ const Employers = ({ navigate }) => {
       </div>
     );
   }
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
         <div style={{ fontSize: 18, fontWeight: 500 }}>Employers</div>
-        <Btn size="sm">+ Add employer</Btn>
+        <Btn size="sm" onClick={() => setShowAddEmployer(true)}>+ Add employer</Btn>
       </div>
-      {MOCK_EMPLOYERS.map(e => (
+      {showAddEmployer && (
+        <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
+          <SectionTitle>New employer</SectionTitle>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div><div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>COMPANY NAME *</div><input style={inputStyle} value={newEmp.name} onChange={e => setNewEmp(n => ({...n, name: e.target.value}))} placeholder="Company name" /></div>
+            <div><div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>COIDA REF</div><input style={inputStyle} value={newEmp.coida_ref} onChange={e => setNewEmp(n => ({...n, coida_ref: e.target.value}))} placeholder="CF-2024-001" /></div>
+            <div><div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>INDUSTRY</div><select style={inputStyle} value={newEmp.industry_class} onChange={e => setNewEmp(n => ({...n, industry_class: e.target.value}))}><option value="">Select...</option>{["Construction","Mining","Manufacturing","Agriculture","Transport","Logistics","Food processing","Chemical","Healthcare","Other"].map(i => <option key={i} value={i}>{i}</option>)}</select></div>
+            <div><div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>COIDA INSURER</div><select style={inputStyle} value={newEmp.coida_insurer} onChange={e => setNewEmp(n => ({...n, coida_insurer: e.target.value}))}><option value="compensation_fund">Compensation Fund</option><option value="rma">RMA</option><option value="fem">FEM</option></select></div>
+          </div>
+          <input style={{...inputStyle, marginBottom: 10}} value={newEmp.contact_email} onChange={e => setNewEmp(n => ({...n, contact_email: e.target.value}))} placeholder="HR contact email" type="email" />
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn size="sm" onClick={handleAddEmployer} disabled={saving || !newEmp.name}>{saving ? "Saving..." : "Save employer"}</Btn>
+            <Btn size="sm" variant="secondary" onClick={() => setShowAddEmployer(false)}>Cancel</Btn>
+          </div>
+        </Card>
+      )}
+      {employers.map(e => (
         <Card key={e.id} style={{ marginBottom: 8, cursor: "pointer" }} onClick={() => setSel(e)}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
@@ -610,8 +646,9 @@ const Encounters = ({ navigate, session }) => {
     }
   }, [form.vitals.weight, form.vitals.height]);
 
-  const person = MOCK_PERSONS.find(p => p.id === form.person_id);
-  const employer = person ? MOCK_EMPLOYERS.find(e => e.id === person.employer_id) : null;
+  const { persons: allPersons, employers: allEmployers, db: liveDb, setLiveEncounters, setLiveFitnessCerts } = useData();
+  const person = allPersons.find(p => p.id === form.person_id);
+  const employer = person ? allEmployers.find(e => e.id === person.employer_id) : null;
 
   // Voice to note
   const voice = useVoiceToNote((parsed) => {
@@ -652,8 +689,9 @@ const Encounters = ({ navigate, session }) => {
     };
 
     // Save to Supabase or offline queue
+    const activeDb = liveDb || sb;
     if (navigator.onLine && !USE_MOCK) {
-      const { error } = await sb.from("clinical_encounter").insert(encRecord);
+      const { error } = await activeDb.from("clinical_encounter").insert(encRecord);
       if (error) {
         await offlineQ.push({ table: "clinical_encounter", payload: encRecord, client_timestamp: now });
         setSyncStatus("offline");
@@ -677,7 +715,7 @@ const Encounters = ({ navigate, session }) => {
         client_timestamp: now,
       };
       if (navigator.onLine && !USE_MOCK) {
-        await sb.from("fitness_certificate").insert(fcRecord);
+        await activeDb.from("fitness_certificate").insert(fcRecord);
       } else {
         await offlineQ.push({ table: "fitness_certificate", payload: fcRecord, client_timestamp: now });
       }
@@ -697,6 +735,9 @@ const Encounters = ({ navigate, session }) => {
     const newEnc = { ...encRecord, id: encId };
     setEncounters(prev => [newEnc, ...prev]);
     if (fcRecord) setFitnessCerts(prev => [fcRecord, ...prev]);
+    // Also update DataContext live state if available
+    if (setLiveEncounters) setLiveEncounters(prev => prev ? [newEnc, ...prev] : [newEnc]);
+    if (fcRecord && setLiveFitnessCerts) setLiveFitnessCerts(prev => prev ? [fcRecord, ...prev] : [fcRecord]);
 
     // Flush offline queue if online
     if (navigator.onLine) offlineQ.flush();
@@ -710,9 +751,9 @@ const Encounters = ({ navigate, session }) => {
   // ── Patient picker modal ──
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
-  const filteredPersons = MOCK_PERSONS.filter(p => {
+  const filteredPersons = allPersons.filter(p => {
     const q = pickerSearch.toLowerCase();
-    const emp = MOCK_EMPLOYERS.find(e => e.id === p.employer_id);
+    const emp = allEmployers.find(e => e.id === p.employer_id);
     return !q || `${p.first_name} ${p.last_name} ${emp?.name} ${p.job_title}`.toLowerCase().includes(q);
   });
 
@@ -739,7 +780,7 @@ const Encounters = ({ navigate, session }) => {
             />
             <div style={{ overflowY: "auto", flex: 1 }}>
               {filteredPersons.map(p => {
-                const emp = MOCK_EMPLOYERS.find(e => e.id === p.employer_id);
+                const emp = allEmployers.find(e => e.id === p.employer_id);
                 return (
                   <div key={p.id} onClick={() => startNewEncounter(p.id)}
                     style={{ padding: "10px 12px", borderRadius: 8, cursor: "pointer", marginBottom: 4, border: `0.5px solid ${C.border}` }}
@@ -761,8 +802,8 @@ const Encounters = ({ navigate, session }) => {
         <Btn size="sm" onClick={() => setShowPicker(true)}>+ New encounter</Btn>
       </div>
       {encounters.map(enc => {
-        const p = MOCK_PERSONS.find(x => x.id === enc.person_id);
-        const emp = MOCK_EMPLOYERS.find(x => x.id === enc.employer_id);
+        const p = allPersons.find(x => x.id === enc.person_id);
+        const emp = allEmployers.find(x => x.id === enc.employer_id);
         return (
           <Card key={enc.id} style={{ marginBottom: 8, cursor: "pointer" }} onClick={() => { setSelEnc(enc); setView("detail"); }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: enc.assessment ? 8 : 0 }}>
@@ -1097,21 +1138,373 @@ const Settings = ({ session }) => {
   );
 };
 
+// ─── SUPABASE AUTH ────────────────────────────────────────────────────────────
+const auth = {
+  signUp: async (email, password, meta) => {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+      method: "POST",
+      headers: { "apikey": SUPABASE_ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, data: meta }),
+    });
+    return r.json();
+  },
+  signIn: async (email, password) => {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { "apikey": SUPABASE_ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    return r.json();
+  },
+  signOut: async (token) => {
+    await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+      method: "POST",
+      headers: { "apikey": SUPABASE_ANON, "Authorization": `Bearer ${token}` },
+    });
+  },
+  getUser: async (token) => {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { "apikey": SUPABASE_ANON, "Authorization": `Bearer ${token}` },
+    });
+    return r.json();
+  },
+};
+
+// Supabase client with auth token support
+const sbAuth = (token) => ({
+  headers: () => ({
+    "apikey": SUPABASE_ANON,
+    "Authorization": `Bearer ${token || SUPABASE_ANON}`,
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
+  }),
+  from: (table) => ({
+    insert: async (row) => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+          method: "POST",
+          headers: { ...sbAuth(token).headers() },
+          body: JSON.stringify(row),
+        });
+        const data = await r.json();
+        return { data: Array.isArray(data) ? data : [data], error: r.ok ? null : data };
+      } catch(e) { return { data: null, error: e }; }
+    },
+    select: async (filter = "") => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}&order=created_at.desc`, {
+          headers: { ...sbAuth(token).headers() },
+        });
+        const data = await r.json();
+        return { data: Array.isArray(data) ? data : [], error: r.ok ? null : data };
+      } catch(e) { return { data: null, error: e }; }
+    },
+    update: async (vals, match) => {
+      try {
+        const qs = Object.entries(match).map(([k,v]) => `${k}=eq.${v}`).join("&");
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${qs}`, {
+          method: "PATCH",
+          headers: { ...sbAuth(token).headers() },
+          body: JSON.stringify(vals),
+        });
+        const data = await r.json();
+        return { data, error: r.ok ? null : data };
+      } catch(e) { return { data: null, error: e }; }
+    },
+  }),
+});
+
+// ─── ONBOARDING WIZARD ────────────────────────────────────────────────────────
+const OnboardingWizard = ({ session, onComplete }) => {
+  const [step, setStep] = useState(1); // 1=tenant 2=practitioner 3=employer 4=employees 5=done
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const token = session?.access_token || session?.user?.access_token;
+
+  const [tenant, setTenant] = useState({ name: "", type: "independent_ohp", coida_registration: "" });
+  const [practitioner, setPractitioner] = useState({ name: session?.user?.user_metadata?.full_name || "", sanc_number: "", qualification: "B.Cur OHN", registration_expiry: "" });
+  const [employer, setEmployer] = useState({ name: "", coida_ref: "", industry_class: "", coida_insurer: "compensation_fund", contact_email: "" });
+  const [employees, setEmployees] = useState([{ first_name: "", last_name: "", employee_number: "", job_title: "", department: "", site: "" }]);
+  const [tenantId, setTenantId] = useState(null);
+  const [employerId, setEmployerId] = useState(null);
+
+  const db = sbAuth(token);
+
+  const saveTenant = async () => {
+    if (!tenant.name) { setError("Practice name is required"); return; }
+    setSaving(true); setError("");
+    const { data, error: err } = await db.from("tenant").insert({ ...tenant, created_at: new Date().toISOString() });
+    if (err || !data?.[0]) { setError("Failed to save practice details. Please try again."); setSaving(false); return; }
+    setTenantId(data[0].id);
+    setSaving(false);
+    setStep(2);
+  };
+
+  const savePractitioner = async () => {
+    if (!practitioner.name || !practitioner.sanc_number) { setError("Name and SANC number are required"); return; }
+    setSaving(true); setError("");
+    const { error: err } = await db.from("practitioner").insert({ ...practitioner, tenant_id: tenantId, created_at: new Date().toISOString() });
+    if (err) { setError("Failed to save practitioner details."); setSaving(false); return; }
+    setSaving(false);
+    setStep(3);
+  };
+
+  const saveEmployer = async () => {
+    if (!employer.name) { setError("Employer name is required"); return; }
+    setSaving(true); setError("");
+    const { data, error: err } = await db.from("employer").insert({ ...employer, tenant_id: tenantId, created_at: new Date().toISOString() });
+    if (err || !data?.[0]) { setError("Failed to save employer."); setSaving(false); return; }
+    setEmployerId(data[0].id);
+    setSaving(false);
+    setStep(4);
+  };
+
+  const saveEmployees = async () => {
+    setSaving(true); setError("");
+    const valid = employees.filter(e => e.first_name && e.last_name);
+    if (valid.length === 0) { setStep(5); setSaving(false); return; }
+    for (const emp of valid) {
+      await db.from("person").insert({ ...emp, employer_id: employerId, employment_status: "active", created_at: new Date().toISOString() });
+    }
+    setSaving(false);
+    setStep(5);
+  };
+
+  const addEmployee = () => setEmployees(e => [...e, { first_name: "", last_name: "", employee_number: "", job_title: "", department: "", site: "" }]);
+  const setEmp = (i, k, v) => setEmployees(e => e.map((emp, idx) => idx === i ? { ...emp, [k]: v } : emp));
+
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" };
+  const labelStyle = { fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textTert, marginBottom: 4, fontWeight: 500, display: "block" };
+
+  const steps = ["Practice", "You", "Employer", "Employees", "Done"];
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: "2rem", width: "100%", maxWidth: 520, boxShadow: "0 4px 24px rgba(0,0,0,0.08)" }}>
+
+        {/* Header */}
+        <div style={{ marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: 18, fontWeight: 500, color: C.tealDark, marginBottom: 4 }}>Set up OccHealth Pro SA</div>
+          <div style={{ fontSize: 13, color: C.textSub }}>Just a few details to get you started — takes about 3 minutes.</div>
+        </div>
+
+        {/* Step indicator */}
+        <div style={{ display: "flex", gap: 6, marginBottom: "1.75rem" }}>
+          {steps.map((s, i) => (
+            <div key={s} style={{ flex: 1, textAlign: "center" }}>
+              <div style={{ height: 3, borderRadius: 2, background: i + 1 <= step ? C.teal : C.border, marginBottom: 4 }} />
+              <div style={{ fontSize: 10, color: i + 1 <= step ? C.teal : C.textTert, fontWeight: i + 1 === step ? 600 : 400 }}>{s}</div>
+            </div>
+          ))}
+        </div>
+
+        {error && <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 7, padding: "8px 12px", fontSize: 12, color: C.red, marginBottom: "1rem" }}>{error}</div>}
+
+        {/* Step 1 — Practice */}
+        {step === 1 && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: "1rem", color: C.text }}>Your practice details</div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Practice / trading name *</label>
+              <input style={inputStyle} value={tenant.name} onChange={e => setTenant(t => ({ ...t, name: e.target.value }))} placeholder="e.g. Cape OccHealth Services" />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Practice type</label>
+              <select style={inputStyle} value={tenant.type} onChange={e => setTenant(t => ({ ...t, type: e.target.value }))}>
+                <option value="independent_ohp">Independent OHP (sole practitioner)</option>
+                <option value="bureau">OHP bureau / network</option>
+                <option value="employer_clinic">Employer-owned clinic</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: "1.5rem" }}>
+              <label style={labelStyle}>COIDA registration number (optional)</label>
+              <input style={inputStyle} value={tenant.coida_registration} onChange={e => setTenant(t => ({ ...t, coida_registration: e.target.value }))} placeholder="e.g. 12345678" />
+            </div>
+            <Btn onClick={saveTenant} disabled={saving} style={{ width: "100%" }}>{saving ? "Saving..." : "Continue →"}</Btn>
+          </div>
+        )}
+
+        {/* Step 2 — Practitioner */}
+        {step === 2 && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: "1rem", color: C.text }}>Your professional details</div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Full name *</label>
+              <input style={inputStyle} value={practitioner.name} onChange={e => setPractitioner(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Sr. Thandi Dlamini" />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>SANC registration number *</label>
+              <input style={inputStyle} value={practitioner.sanc_number} onChange={e => setPractitioner(p => ({ ...p, sanc_number: e.target.value }))} placeholder="e.g. 123456789" />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Qualification</label>
+              <select style={inputStyle} value={practitioner.qualification} onChange={e => setPractitioner(p => ({ ...p, qualification: e.target.value }))}>
+                <option value="B.Cur OHN">B.Cur OHN (Occupational Health Nursing)</option>
+                <option value="B.Tech OHN">B.Tech OHN</option>
+                <option value="Dip OHN">Diploma in OHN</option>
+                <option value="MBChB Dip Occ Med">MBChB + Dip Occ Med</option>
+                <option value="FC OccMed">FC OccMed (Occupational Medicine Specialist)</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: "1.5rem" }}>
+              <label style={labelStyle}>SANC registration expiry date</label>
+              <input type="date" style={inputStyle} value={practitioner.registration_expiry} onChange={e => setPractitioner(p => ({ ...p, registration_expiry: e.target.value }))} />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="secondary" onClick={() => setStep(1)}>← Back</Btn>
+              <Btn onClick={savePractitioner} disabled={saving} style={{ flex: 1 }}>{saving ? "Saving..." : "Continue →"}</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3 — First employer */}
+        {step === 3 && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4, color: C.text }}>Add your first employer client</div>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: "1rem" }}>You can add more employers later from the Employers screen.</div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Company name *</label>
+              <input style={inputStyle} value={employer.name} onChange={e => setEmployer(em => ({ ...em, name: e.target.value }))} placeholder="e.g. Cape Construction (Pty) Ltd" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={labelStyle}>COIDA reference number</label>
+                <input style={inputStyle} value={employer.coida_ref} onChange={e => setEmployer(em => ({ ...em, coida_ref: e.target.value }))} placeholder="CF-2024-001" />
+              </div>
+              <div>
+                <label style={labelStyle}>Industry</label>
+                <select style={inputStyle} value={employer.industry_class} onChange={e => setEmployer(em => ({ ...em, industry_class: e.target.value }))}>
+                  <option value="">Select...</option>
+                  {["Construction","Mining","Manufacturing","Agriculture","Transport","Logistics","Food processing","Chemical","Healthcare","Retail","Other"].map(i => <option key={i} value={i}>{i}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>COIDA insurer</label>
+              <select style={inputStyle} value={employer.coida_insurer} onChange={e => setEmployer(em => ({ ...em, coida_insurer: e.target.value }))}>
+                <option value="compensation_fund">Compensation Fund (DoL)</option>
+                <option value="rma">Rand Mutual Assurance (RMA) — mining & metals</option>
+                <option value="fem">Federated Employers Mutual (FEM) — construction</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: "1.5rem" }}>
+              <label style={labelStyle}>HR contact email</label>
+              <input type="email" style={inputStyle} value={employer.contact_email} onChange={e => setEmployer(em => ({ ...em, contact_email: e.target.value }))} placeholder="hr@company.co.za" />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="secondary" onClick={() => setStep(2)}>← Back</Btn>
+              <Btn onClick={saveEmployer} disabled={saving} style={{ flex: 1 }}>{saving ? "Saving..." : "Continue →"}</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4 — Employees */}
+        {step === 4 && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4, color: C.text }}>Add employees for {employer.name}</div>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: "1rem" }}>Add a few key employees to get started. You can bulk-import more later.</div>
+            <div style={{ maxHeight: 320, overflowY: "auto", marginBottom: "1rem" }}>
+              {employees.map((emp, i) => (
+                <div key={i} style={{ background: C.bgSub, borderRadius: 8, padding: "0.875rem", marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, color: C.textTert, marginBottom: 8, fontWeight: 500 }}>Employee {i + 1}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                    <div>
+                      <label style={labelStyle}>First name *</label>
+                      <input style={inputStyle} value={emp.first_name} onChange={e => setEmp(i, "first_name", e.target.value)} placeholder="First name" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Last name *</label>
+                      <input style={inputStyle} value={emp.last_name} onChange={e => setEmp(i, "last_name", e.target.value)} placeholder="Last name" />
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <div>
+                      <label style={labelStyle}>Emp. number</label>
+                      <input style={inputStyle} value={emp.employee_number} onChange={e => setEmp(i, "employee_number", e.target.value)} placeholder="EMP-001" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Job title</label>
+                      <input style={inputStyle} value={emp.job_title} onChange={e => setEmp(i, "job_title", e.target.value)} placeholder="Title" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Site</label>
+                      <input style={inputStyle} value={emp.site} onChange={e => setEmp(i, "site", e.target.value)} placeholder="Site" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Btn variant="ghost" size="sm" onClick={addEmployee} style={{ marginBottom: "1rem" }}>+ Add another employee</Btn>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="secondary" onClick={() => setStep(3)}>← Back</Btn>
+              <Btn onClick={saveEmployees} disabled={saving} style={{ flex: 1 }}>{saving ? "Saving..." : "Save & finish →"}</Btn>
+            </div>
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <button onClick={() => setStep(5)} style={{ background: "none", border: "none", fontSize: 12, color: C.textTert, cursor: "pointer", textDecoration: "underline" }}>Skip for now</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5 — Done */}
+        {step === 5 && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 32, marginBottom: "1rem" }}>✅</div>
+            <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>You're all set</div>
+            <div style={{ fontSize: 13, color: C.textSub, marginBottom: "1.5rem", lineHeight: 1.6 }}>
+              Your practice is configured. Head to Encounters to start recording clinical notes, or add more employers from the Employers screen.
+            </div>
+            <Btn onClick={onComplete} style={{ width: "100%" }}>Go to dashboard →</Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 const LoginScreen = ({ onLogin }) => {
+  const [mode, setMode] = useState("login"); // login | signup
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const inputStyle = { width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 14, outline: "none", fontFamily: "inherit" };
 
   const handleLogin = async () => {
     if (!email || !password) { setError("Enter email and password"); return; }
     setLoading(true); setError("");
-    await new Promise(r => setTimeout(r, 600));
     if (USE_MOCK) {
       onLogin(MOCK_SESSION);
+      setLoading(false);
+      return;
+    }
+    const data = await auth.signIn(email, password);
+    if (data.error || !data.access_token) {
+      setError(data.error_description || data.message || "Invalid email or password");
+      setLoading(false);
+      return;
+    }
+    const user = await auth.getUser(data.access_token);
+    onLogin({ ...data, user });
+    setLoading(false);
+  };
+
+  const handleSignup = async () => {
+    if (!email || !password || !fullName) { setError("All fields required"); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
+    setLoading(true); setError("");
+    const data = await auth.signUp(email, password, { full_name: fullName, role: "ohp", onboarding_complete: false });
+    if (data.error) { setError(data.error_description || data.message || "Signup failed"); setLoading(false); return; }
+    // Auto sign in after signup
+    const signInData = await auth.signIn(email, password);
+    if (signInData.access_token) {
+      const user = await auth.getUser(signInData.access_token);
+      onLogin({ ...signInData, user });
     } else {
-      setError("Supabase not yet connected — use demo mode");
+      setError("Account created. Check your email to confirm, then sign in.");
     }
     setLoading(false);
   };
@@ -1123,23 +1516,46 @@ const LoginScreen = ({ onLogin }) => {
           <div style={{ fontSize: 22, fontWeight: 600, color: C.tealDark, letterSpacing: "-0.02em" }}>OccHealth Pro SA</div>
           <div style={{ fontSize: 13, color: C.textSub, marginTop: 4 }}>Occupational health practice management</div>
         </div>
+
         {USE_MOCK && (
           <div style={{ background: C.tealLight, border: `1px solid ${C.tealMid}`, borderRadius: 8, padding: "8px 12px", marginBottom: "1rem", fontSize: 12, color: C.teal }}>
             Demo mode — any credentials will work
           </div>
         )}
+
+        {/* Tab toggle */}
+        {!USE_MOCK && (
+          <div style={{ display: "flex", background: C.bgSub, borderRadius: 8, padding: 3, marginBottom: "1.25rem" }}>
+            {["login","signup"].map(m => (
+              <button key={m} onClick={() => { setMode(m); setError(""); }} style={{ flex: 1, padding: "6px", borderRadius: 6, border: "none", background: mode === m ? "#fff" : "transparent", color: mode === m ? C.text : C.textSub, fontSize: 13, fontWeight: mode === m ? 500 : 400, cursor: "pointer", boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+                {m === "login" ? "Sign in" : "Create account"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === "signup" && !USE_MOCK && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Full name</div>
+            <input style={inputStyle} value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Sr. Jane Smith" />
+          </div>
+        )}
+
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Email</div>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@practice.co.za" style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 14, outline: "none" }} onKeyDown={e => e.key === "Enter" && handleLogin()} />
+          <input type="email" style={inputStyle} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@practice.co.za" onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleSignup())} />
         </div>
         <div style={{ marginBottom: "1rem" }}>
-          <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Password</div>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 14, outline: "none" }} onKeyDown={e => e.key === "Enter" && handleLogin()} />
+          <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Password {mode === "signup" && <span style={{ color: C.textTert }}>(min 8 characters)</span>}</div>
+          <input type="password" style={inputStyle} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleSignup())} />
         </div>
-        {error && <div style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</div>}
-        <Btn onClick={handleLogin} disabled={loading} style={{ width: "100%", justifyContent: "center" }}>
-          {loading ? "Signing in..." : "Sign in"}
+
+        {error && <div style={{ fontSize: 12, color: C.red, marginBottom: 10, background: "#FEF2F2", padding: "8px 10px", borderRadius: 6 }}>{error}</div>}
+
+        <Btn onClick={mode === "login" ? handleLogin : handleSignup} disabled={loading} style={{ width: "100%", justifyContent: "center" }}>
+          {loading ? (mode === "login" ? "Signing in..." : "Creating account...") : (mode === "login" ? "Sign in" : "Create account")}
         </Btn>
+
         <div style={{ textAlign: "center", marginTop: "1rem", fontSize: 11, color: C.textTert }}>
           OccHealth Pro SA v{APP_VERSION} · POPIA compliant
         </div>
@@ -1204,13 +1620,34 @@ const TopBar = ({ screen, nav }) => {
   );
 };
 
+// ─── DATA CONTEXT ────────────────────────────────────────────────────────────
+const DataContext = createContext(null);
+const useData = () => useContext(DataContext);
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(() => {
     try { const s = localStorage.getItem(LS.SESSION); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [screen, setScreen] = useState("dashboard");
-  const [view, setView] = useState("ohp"); // ohp | employer | bureau
+  const [view, setView] = useState("ohp");
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+
+  // Live data state (replaces mock arrays for authenticated users)
+  const [liveEmployers, setLiveEmployers] = useState(null); // null = not loaded
+  const [livePersons, setLivePersons] = useState(null);
+  const [liveEncounters, setLiveEncounters] = useState(null);
+  const [liveFitnessCerts, setLiveFitnessCerts] = useState(null);
+  const [dataLoading, setDataLoading] = useState(false);
+
+  const token = session?.access_token;
+  const db = token ? sbAuth(token) : null;
+
+  // Derived: use live data when available, else mock
+  const employers = liveEmployers ?? MOCK_EMPLOYERS;
+  const persons = livePersons ?? MOCK_PERSONS;
+  const encounters = liveEncounters ?? MOCK_ENCOUNTERS;
+  const fitnessCerts = liveFitnessCerts ?? MOCK_FITNESS_CERTS;
 
   // Register service worker
   useEffect(() => {
@@ -1219,20 +1656,86 @@ export default function App() {
     }
   }, []);
 
-  const handleLogin = (sess) => {
-    setSession(sess);
-    localStorage.setItem(LS.SESSION, JSON.stringify(sess));
+  // Load live data when session exists and Supabase connected
+  useEffect(() => {
+    if (!session || USE_MOCK || !token) return;
+    loadAllData();
+  }, [session?.access_token]);
+
+  const loadAllData = async () => {
+    if (!db) return;
+    setDataLoading(true);
+    try {
+      const [empRes, persRes, encRes, fcRes] = await Promise.all([
+        db.from("employer").select("tenant_id=not.is.null"),
+        db.from("person").select("employer_id=not.is.null"),
+        db.from("clinical_encounter").select("id=not.is.null&limit=100"),
+        db.from("fitness_certificate").select("superseded=eq.false&limit=100"),
+      ]);
+      if (empRes.data) setLiveEmployers(empRes.data);
+      if (persRes.data) setLivePersons(persRes.data);
+      if (encRes.data) setLiveEncounters(encRes.data);
+      if (fcRes.data) setLiveFitnessCerts(fcRes.data);
+
+      // Check if onboarding needed (no employers = never set up)
+      if (empRes.data && empRes.data.length === 0) {
+        setNeedsOnboarding(true);
+      }
+    } catch(e) {
+      console.warn("Data load error:", e);
+    }
+    setDataLoading(false);
   };
 
-  const handleLogout = () => {
+  const handleLogin = async (sess) => {
+    setSession(sess);
+    localStorage.setItem(LS.SESSION, JSON.stringify(sess));
+    // Check onboarding for new real users
+    if (!USE_MOCK && sess?.access_token) {
+      const onboarded = sess?.user?.user_metadata?.onboarding_complete;
+      if (!onboarded) setNeedsOnboarding(true);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!USE_MOCK && token) {
+      await auth.signOut(token).catch(() => {});
+    }
     setSession(null);
+    setLiveEmployers(null);
+    setLivePersons(null);
+    setLiveEncounters(null);
+    setLiveFitnessCerts(null);
+    setNeedsOnboarding(false);
     localStorage.removeItem(LS.SESSION);
     setScreen("dashboard");
   };
 
+  const handleOnboardingComplete = async () => {
+    setNeedsOnboarding(false);
+    if (token) {
+      // Update user metadata to mark onboarding complete
+      await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: "PUT",
+        headers: { "apikey": SUPABASE_ANON, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ data: { ...session?.user?.user_metadata, onboarding_complete: true } }),
+      }).catch(() => {});
+      await loadAllData();
+    }
+  };
+
+  const refreshData = () => { if (!USE_MOCK) loadAllData(); };
+
   if (!session) return <LoginScreen onLogin={handleLogin} />;
 
+  if (needsOnboarding && !USE_MOCK) {
+    return <OnboardingWizard session={session} onComplete={handleOnboardingComplete} />;
+  }
+
   const navigate = (s) => setScreen(s);
+
+  const dataCtx = { employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
+    setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons };
 
   const screens = {
     dashboard: <Dashboard session={session} navigate={navigate} />,
@@ -1250,26 +1753,32 @@ export default function App() {
 
   return (
     <AuthContext.Provider value={{ session, view, setView }}>
-      <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: C.text }}>
-        <Sidebar screen={screen} setScreen={setScreen} session={session} onLogout={handleLogout} view={view} />
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <TopBar screen={screen} nav={nav} />
-          {/* View switcher — dev only, remove before first customer */}
-          {USE_MOCK && (
-            <div style={{ background: C.bgSub, borderBottom: `0.5px solid ${C.border}`, padding: "6px 1.5rem", display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: C.textTert }}>View:</span>
-              {["ohp","employer","bureau"].map(v => (
-                <button key={v} onClick={() => { setView(v); setScreen(v === "employer" ? "portal" : "dashboard"); }} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, border: `1px solid ${C.border}`, background: view === v ? C.teal : "#fff", color: view === v ? "#fff" : C.textSub, cursor: "pointer" }}>
-                  {v === "ohp" ? "OHP Clinical" : v === "employer" ? "Employer Portal" : "Bureau Ops"}
-                </button>
-              ))}
+      <DataContext.Provider value={dataCtx}>
+        <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: C.text }}>
+          <Sidebar screen={screen} setScreen={setScreen} session={session} onLogout={handleLogout} view={view} />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+            <TopBar screen={screen} nav={nav} />
+            {USE_MOCK && (
+              <div style={{ background: C.bgSub, borderBottom: `0.5px solid ${C.border}`, padding: "6px 1.5rem", display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: C.textTert }}>View:</span>
+                {["ohp","employer","bureau"].map(v => (
+                  <button key={v} onClick={() => { setView(v); setScreen(v === "employer" ? "portal" : "dashboard"); }} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, border: `1px solid ${C.border}`, background: view === v ? C.teal : "#fff", color: view === v ? "#fff" : C.textSub, cursor: "pointer" }}>
+                    {v === "ohp" ? "OHP Clinical" : v === "employer" ? "Employer Portal" : "Bureau Ops"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {dataLoading && (
+              <div style={{ background: C.tealLight, borderBottom: `0.5px solid ${C.tealMid}`, padding: "4px 1.5rem", fontSize: 12, color: C.teal }}>
+                Loading your data...
+              </div>
+            )}
+            <div style={{ flex: 1, padding: "1.5rem", overflowY: "auto", maxWidth: 800 }}>
+              {screens[screen] || <div style={{ color: C.textSub }}>Coming soon</div>}
             </div>
-          )}
-          <div style={{ flex: 1, padding: "1.5rem", overflowY: "auto", maxWidth: 800 }}>
-            {screens[screen] || <div style={{ color: C.textSub }}>Coming soon — Phase {screen}</div>}
           </div>
         </div>
-      </div>
+      </DataContext.Provider>
     </AuthContext.Provider>
   );
 }
