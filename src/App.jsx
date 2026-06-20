@@ -707,12 +707,58 @@ const Encounters = ({ navigate, session }) => {
     setTimeout(() => setSyncStatus(null), 3000);
   };
 
+  // ── Patient picker modal ──
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState("");
+  const filteredPersons = MOCK_PERSONS.filter(p => {
+    const q = pickerSearch.toLowerCase();
+    const emp = MOCK_EMPLOYERS.find(e => e.id === p.employer_id);
+    return !q || `${p.first_name} ${p.last_name} ${emp?.name} ${p.job_title}`.toLowerCase().includes(q);
+  });
+
+  const startNewEncounter = (personId) => {
+    setForm({ ...EMPTY_FORM, person_id: personId });
+    setShowPicker(false);
+    setPickerSearch("");
+    setView("new");
+  };
+
   // ── List view ──
   if (view === "list") return (
     <div>
+      {showPicker && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem", width: "100%", maxWidth: 440, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 16, fontWeight: 500, marginBottom: "1rem" }}>Select employee</div>
+            <input
+              autoFocus
+              value={pickerSearch}
+              onChange={e => setPickerSearch(e.target.value)}
+              placeholder="Search by name, employer, job title..."
+              style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, marginBottom: "0.75rem", outline: "none" }}
+            />
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {filteredPersons.map(p => {
+                const emp = MOCK_EMPLOYERS.find(e => e.id === p.employer_id);
+                return (
+                  <div key={p.id} onClick={() => startNewEncounter(p.id)}
+                    style={{ padding: "10px 12px", borderRadius: 8, cursor: "pointer", marginBottom: 4, border: `0.5px solid ${C.border}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.tealLight}
+                    onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{p.first_name} {p.last_name}</div>
+                    <div style={{ fontSize: 12, color: C.textSub }}>{emp?.name} · {p.job_title}</div>
+                  </div>
+                );
+              })}
+              {filteredPersons.length === 0 && <div style={{ fontSize: 13, color: C.textTert, textAlign: "center", padding: "1rem" }}>No employees found</div>}
+            </div>
+            <Btn variant="secondary" size="sm" onClick={() => { setShowPicker(false); setPickerSearch(""); }} style={{ marginTop: "1rem" }}>Cancel</Btn>
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
         <div style={{ fontSize: 18, fontWeight: 500 }}>Clinical encounters</div>
-        <Btn size="sm" onClick={() => { setForm(EMPTY_FORM); setView("new"); }}>+ New encounter</Btn>
+        <Btn size="sm" onClick={() => setShowPicker(true)}>+ New encounter</Btn>
       </div>
       {encounters.map(enc => {
         const p = MOCK_PERSONS.find(x => x.id === enc.person_id);
@@ -773,14 +819,6 @@ const Encounters = ({ navigate, session }) => {
       <Card style={{ marginBottom: 10 }}>
         <SectionTitle>Patient & encounter type</SectionTitle>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <Field label="Employee">
-            <Select value={form.person_id} onChange={e => setField("person_id", e.target.value)}>
-              <option value="">Select employee...</option>
-              {MOCK_PERSONS.map(p => (
-                <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {MOCK_EMPLOYERS.find(e => e.id === p.employer_id)?.name}</option>
-              ))}
-            </Select>
-          </Field>
           <Field label="Encounter type">
             <Select value={form.encounter_type} onChange={e => setField("encounter_type", e.target.value)}>
               {["pre_employment","periodic","exit","iod_treatment","surveillance","sick","chronic_review","drug_test_linked"].map(t => (
