@@ -567,6 +567,114 @@ const Textarea = ({ value, onChange, rows = 3, placeholder = "" }) => (
 );
 
 // ─── ENCOUNTER DETAIL VIEW ────────────────────────────────────────────────────
+// ─── AI LETTERS ───────────────────────────────────────────────────────────────
+// Generates referral letters, sick notes, return-to-work certificates
+// from a signed encounter's assessment + plan. No clinical hallucination —
+// Claude only reformats what the OHP has already written.
+
+const LETTER_TYPES = [
+  { value: "referral",   label: "Specialist referral",    icon: "📋" },
+  { value: "sick_note",  label: "Sick note",              icon: "🏥" },
+  { value: "rtw",        label: "Return-to-work cert",    icon: "✅" },
+];
+
+const AILetters = ({ enc, person, employer, session }) => {
+  const [generating, setGenerating] = useState(null); // letter type being generated
+  const [letters, setLetters] = useState({}); // keyed by letter type
+  const [showLetter, setShowLetter] = useState(null);
+  const meta = session?.user?.user_metadata || {};
+
+  const generate = async (type) => {
+    setGenerating(type);
+    try {
+      const typeLabel = LETTER_TYPES.find(t => t.value === type)?.label || type;
+      const systemPrompt = `You are an occupational health practitioner assistant. Generate a professional ${typeLabel} letter for South Africa based on the clinical notes provided. Use formal medical letter format. Include date, patient details, practitioner details. Do not add clinical information not present in the notes. Output plain text only — no markdown, no asterisks.`;
+
+      const contextLines = [
+        `Patient: ${person?.first_name || ""} ${person?.last_name || ""}`,
+        `ID: ${person?.id_number || "not provided"}`,
+        `DOB: ${person?.date_of_birth || "not provided"}`,
+        `Occupation: ${person?.job_title || "not provided"}`,
+        `Employer: ${employer?.name || "not provided"}`,
+        `Encounter date: ${enc.encounter_at ? new Date(enc.encounter_at).toLocaleDateString("en-ZA") : ""}`,
+        `Encounter type: ${enc.encounter_type?.replace(/_/g," ") || ""}`,
+        enc.assessment ? `Assessment: ${enc.assessment}` : "",
+        enc.plan ? `Plan: ${enc.plan}` : "",
+        `Practitioner: ${enc.signed_by || meta.full_name || ""}`,
+      ].filter(Boolean).join("\n");
+
+      const typeInstruction = {
+        referral: "Write a specialist referral letter. Include reason for referral, clinical summary, and specific request.",
+        sick_note: "Write a medical certificate of illness/incapacity. State the period of incapacity and return-to-work date if known. Keep it concise and formal.",
+        rtw: "Write a return-to-work certificate. State that the patient is fit to return, with any restrictions or modifications required. Reference the encounter date.",
+      }[type] || "";
+
+      const res = await fetch("/.netlify/functions/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system: systemPrompt,
+          messages: [{ role: "user", content: `${typeInstruction}\n\nClinical context:\n${contextLines}` }],
+          max_tokens: 600,
+        }),
+      });
+      const data = await res.json();
+      const text = data.content?.[0]?.text || "";
+      setLetters(prev => ({ ...prev, [type]: text }));
+      setShowLetter(type);
+    } catch(e) {
+      console.error("Letter generation error:", e);
+      alert("Failed to generate letter: " + e.message);
+    }
+    setGenerating(null);
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  return (
+    <div style={{ marginTop: "1rem" }}>
+      <SectionTitle>AI letters</SectionTitle>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "1rem" }}>
+        {LETTER_TYPES.map(t => (
+          <Btn key={t.value} size="sm" variant="secondary" onClick={() => generate(t.value)} disabled={!!generating}>
+            {generating === t.value ? "Generating..." : `${t.icon} ${t.label}`}
+          </Btn>
+        ))}
+      </div>
+
+      {showLetter && letters[showLetter] && (
+        <Card style={{ border: `1px solid ${C.border}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {LETTER_TYPES.map(t => (
+                <button key={t.value} onClick={() => setShowLetter(letters[t.value] ? t.value : showLetter)}
+                  style={{ fontSize: 12, padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.border}`,
+                    background: showLetter === t.value ? C.teal : C.bgSub, color: showLetter === t.value ? "#fff" : C.textSub,
+                    cursor: letters[t.value] ? "pointer" : "not-allowed", opacity: letters[t.value] ? 1 : 0.4 }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Btn size="sm" variant="secondary" onClick={() => copyToClipboard(letters[showLetter])}>Copy</Btn>
+              <Btn size="sm" variant="ghost" onClick={() => {
+                const w = window.open("", "_blank");
+                w.document.write(`<pre style="font-family:Georgia,serif;font-size:14px;line-height:1.8;padding:2rem;max-width:700px;margin:auto">${letters[showLetter]}</pre>`);
+                w.print();
+              }}>Print</Btn>
+            </div>
+          </div>
+          <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap", color: C.text, fontFamily: "Georgia, serif", background: C.bgSub, padding: "1rem", borderRadius: 6 }}>
+            {letters[showLetter]}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+};
+
 const EncounterDetail = ({ enc, onBack, session }) => {
   const { persons, employers, fitnessCerts } = useData();
   const person = persons.find(p => p.id === enc.person_id);
@@ -660,6 +768,12 @@ const EncounterDetail = ({ enc, onBack, session }) => {
           {enc.ai_generated && <span style={{ marginLeft: 8 }}><Badge color="gray">AI-assisted</Badge></span>}
         </div>
       )}
+
+      {/* AI letters — only on signed encounters with assessment/plan */}
+      {enc.signed_at && (enc.assessment || enc.plan) && (
+        <AILetters enc={enc} person={person} employer={employer} session={session} />
+      )}
+
       {fc && (
         <>
           <SectionTitle style={{ marginTop: "1rem" }}>Fitness certificate</SectionTitle>
@@ -751,7 +865,7 @@ const SignModal = ({ form, person, onConfirm, onCancel, session }) => {
 };
 
 // ─── VOICE TO NOTE ────────────────────────────────────────────────────────────
-const useVoiceToNote = (onResult) => {
+const useVoiceToNote = (onResult, context = {}) => {
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -781,13 +895,33 @@ const useVoiceToNote = (onResult) => {
     setGenerating(true);
     try {
       const styleExamples = getStyleExamples();
-      const systemPrompt = `You are an occupational health clinical note assistant for South Africa. Generate structured SOAP notes from voice transcripts. ${styleExamples ? `Here are examples of the practitioner's writing style:\n\n${styleExamples}` : ""} Respond ONLY with JSON: {"subjective":"...","objective":"...","assessment":"...","plan":"..."}`;
+
+      // Build rich context string from person/employer/encounter data
+      const ctx = [];
+      if (context.encounterType) ctx.push(`Encounter type: ${context.encounterType.replace(/_/g, " ")}`);
+      if (context.personName) ctx.push(`Patient: ${context.personName}`);
+      if (context.jobTitle) ctx.push(`Occupation: ${context.jobTitle}`);
+      if (context.employer) ctx.push(`Employer: ${context.employer}`);
+      if (context.hazardProfiles?.length) ctx.push(`Hazard exposures: ${context.hazardProfiles.join(", ")}`);
+      if (context.vitals?.bp_systolic) ctx.push(`BP: ${context.vitals.bp_systolic}/${context.vitals.bp_diastolic} mmHg`);
+      if (context.vitals?.hr) ctx.push(`HR: ${context.vitals.hr} bpm`);
+      if (context.vitals?.weight) ctx.push(`Weight: ${context.vitals.weight} kg`);
+      const contextStr = ctx.length ? `\n\nPatient context:\n${ctx.join("\n")}` : "";
+
+      const styleSection = styleExamples
+        ? `\n\nHere are examples of this practitioner's writing style (match it precisely):\n\n${styleExamples}`
+        : "";
+
+      const systemPrompt = `You are an occupational health clinical note assistant for South Africa. Generate structured SOAP notes from voice transcripts. Write concisely in the style of an experienced occupational health practitioner. Use standard SA OHP terminology. Do not fabricate clinical findings — only include what is in the transcript.${styleSection} Respond ONLY with JSON: {"subjective":"...","objective":"...","assessment":"...","plan":"..."}`;
+
+      const userMsg = `Generate a SOAP note from this voice transcript.${contextStr}\n\nTranscript: ${transcript}`;
+
       const res = await fetch("/.netlify/functions/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           system: systemPrompt,
-          messages: [{ role: "user", content: `Generate a SOAP note from this transcript: ${transcript}` }],
+          messages: [{ role: "user", content: userMsg }],
           max_tokens: 800,
         }),
       });
@@ -850,6 +984,12 @@ const Encounters = ({ navigate, session }) => {
       assessment: parsed.assessment || f.assessment,
       plan: parsed.plan || f.plan,
     }));
+  }, {
+    encounterType: form.encounter_type,
+    personName: person ? `${person.first_name} ${person.last_name}` : undefined,
+    jobTitle: person?.job_title,
+    employer: employer?.name,
+    vitals: form.vitals,
   });
 
   const handleSign = async (signedAt, fc) => {
@@ -1290,7 +1430,7 @@ const EnrolModal = ({ profile, persons, enrolledIds, onSave, onClose }) => {
 };
 
 // ── Result Capture Modal ──────────────────────────────────────────────────────
-const ResultCaptureModal = ({ event, person, onSave, onClose }) => {
+const ResultCaptureModal = ({ event, person, onSave, onClose, db }) => {
   const [results, setResults] = useState({});
   const [flagged, setFlagged] = useState(false);
   const [flagDetail, setFlagDetail] = useState("");
@@ -1352,12 +1492,39 @@ const ResultCaptureModal = ({ event, person, onSave, onClose }) => {
   const checkWithAI = async () => {
     setAiChecking(true);
     try {
+      // Fetch the previous completed result for this person + test type for comparison
+      let previousResult = null;
+      if (db && !USE_MOCK) {
+        try {
+          const prevRes = await db.from("surveillance_event").select(
+            `person_id=eq.${event.person_id}&test_type=eq.${event.test_type}&status=eq.completed&id=neq.${event.id}&order=completed_date.desc&limit=1`
+          );
+          if (prevRes.data?.[0]?.results) previousResult = prevRes.data[0].results;
+        } catch(e) { console.warn("Prior result fetch failed", e); }
+      }
+
+      const prevContext = previousResult
+        ? `Previous result (for comparison): ${JSON.stringify(previousResult)}`
+        : "No previous result on file — assess absolute values only.";
+
+      const flagRules = {
+        audiometry: "Flag if any frequency shows threshold shift ≥10dB compared to previous, OR absolute threshold >25dB HL at any frequency.",
+        spirometry: "Flag if FEV1 drops ≥15% compared to previous, OR FEV1/FVC ratio <0.70.",
+        vision: "Flag if uncorrected VA is worse than 6/12 in either eye, or significant change from previous.",
+        blood_pressure: "Flag if systolic ≥140 or diastolic ≥90.",
+        glucose: "Flag if fasting glucose ≥7.0 mmol/L or random ≥11.1 mmol/L.",
+        bio_monitor: "Flag if result is outside the stated reference range.",
+        lung_function: "Flag if FEV1 <80% predicted or FEV1/FVC <0.70.",
+      };
+      const rules = flagRules[event.test_type] || "Flag if any value is outside normal clinical range.";
+
       const resp = await fetch("/.netlify/functions/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          system: "You are an occupational health clinical decision support system. Analyse surveillance results and flag significant changes. Return JSON only: {flagged: boolean, flag_detail: string}. Be concise — one sentence per flag.",
-          messages: [{ role: "user", content: `Test type: ${event.test_type}. Results: ${JSON.stringify(results)}. Previous result note: none available. Flag if any value is clinically significant (e.g. audiometry threshold shift >10dB at any frequency, FEV1 drop >15%, glucose >7.0 fasting).` }],
+          system: "You are an occupational health clinical decision support system for South Africa. Analyse surveillance results and flag significant findings. Return JSON only: {flagged: boolean, flag_detail: string}. flag_detail must be one concise clinical sentence. Never fabricate values.",
+          messages: [{ role: "user", content: `Test type: ${event.test_type}\nCurrent results: ${JSON.stringify(results)}\n${prevContext}\n\nFlagging rules: ${rules}\n\nShould this result be flagged for OHP review?` }],
+          max_tokens: 200,
         }),
       });
       const data = await resp.json();
@@ -1783,6 +1950,7 @@ const Surveillance = () => {
           person={captureTarget.person}
           onSave={handleSaveResult}
           onClose={() => setCaptureTarget(null)}
+          db={db}
         />
       )}
     </div>
@@ -2171,6 +2339,28 @@ const IODRegister = () => {
                 Resubmit
               </Btn>
             )}
+            <Btn size="sm" variant="secondary" disabled={generatingId === iod.id + "_letter"} onClick={async () => {
+              setGeneratingId(iod.id + "_letter");
+              try {
+                const p = persons.find(x => x.id === iod.person_id);
+                const emp = employers.find(e => e.id === iod.employer_id);
+                const systemPrompt = "You are an occupational health practitioner assistant in South Africa. Draft a professional COIDA covering letter to accompany a W.Cl.2/W.Cl.4 submission. Use formal letter format. Be concise. Output plain text only — no markdown.";
+                const userMsg = `Write a covering letter for a COIDA claim submission.\nPatient: ${p?.first_name} ${p?.last_name}\nOccupation: ${p?.job_title || "not stated"}\nEmployer: ${emp?.name}\nInsurer: ${INSURER_LABELS[emp?.coida_insurer] || emp?.coida_insurer}\nIncident date: ${iod.incident_at ? new Date(iod.incident_at).toLocaleDateString("en-ZA") : ""}\nIncident type: ${iod.incident_type}\nSeverity: ${iod.severity?.replace(/_/g," ")}\nNarrative: ${iod.narrative}\nClaim status: ${claim?.status || "new submission"}${claim?.claim_reference ? "\nClaim reference: " + claim.claim_reference : ""}`;
+                const res = await fetch("/.netlify/functions/claude", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ system: systemPrompt, messages: [{ role: "user", content: userMsg }], max_tokens: 500 }),
+                });
+                const data = await res.json();
+                const letter = data.content?.[0]?.text || "";
+                // Open in new window for print/copy
+                const w = window.open("", "_blank");
+                w.document.write(`<pre style="font-family:Georgia,serif;font-size:14px;line-height:1.8;padding:2rem;max-width:700px;margin:auto">${letter}</pre><script>window.print()<\/script>`);
+              } catch(e) { alert("Letter generation failed: " + e.message); }
+              setGeneratingId(null);
+            }}>
+              {generatingId === iod.id + "_letter" ? "Generating..." : "📄 Covering letter"}
+            </Btn>
           </div>
         </Card>
       );
