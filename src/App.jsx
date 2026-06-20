@@ -1,4 +1,5 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
+import * as React from "react";
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "YOUR_PROJECT";
@@ -244,58 +245,484 @@ const Employers = ({ navigate }) => {
   );
 };
 
-const Encounters = ({ navigate }) => {
-  const [showNew, setShowNew] = useState(false);
-  const [form, setForm] = useState({ person_id: "", encounter_type: "periodic", subjective: "", objective: "", assessment: "", plan: "" });
+// ─── SUPABASE CLIENT ─────────────────────────────────────────────────────────
+const sb = {
+  headers: () => ({
+    "apikey": SUPABASE_ANON,
+    "Authorization": `Bearer ${SUPABASE_ANON}`,
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
+  }),
+  from: (table) => ({
+    insert: async (row) => {
+      if (USE_MOCK) return { data: [{ ...row, id: crypto.randomUUID() }], error: null };
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+          method: "POST", headers: sb.headers(), body: JSON.stringify(row),
+        });
+        const data = await r.json();
+        return { data: Array.isArray(data) ? data : [data], error: r.ok ? null : data };
+      } catch(e) { return { data: null, error: e }; }
+    },
+    select: async (filter = "") => {
+      if (USE_MOCK) return { data: [], error: null };
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}&order=created_at.desc`, { headers: sb.headers() });
+        const data = await r.json();
+        return { data: Array.isArray(data) ? data : [], error: r.ok ? null : data };
+      } catch(e) { return { data: null, error: e }; }
+    },
+  }),
+};
+
+// ─── OFFLINE QUEUE ────────────────────────────────────────────────────────────
+const OFFLINE_DB = "oh_offline";
+const OFFLINE_STORE = "queue";
+
+const offlineQ = {
+  open: () => new Promise((res, rej) => {
+    const req = indexedDB.open(OFFLINE_DB, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(OFFLINE_STORE, { keyPath: "id", autoIncrement: true });
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = e => rej(e);
+  }),
+  push: async (record) => {
+    try {
+      const db = await offlineQ.open();
+      const tx = db.transaction(OFFLINE_STORE, "readwrite");
+      tx.objectStore(OFFLINE_STORE).add(record);
+    } catch(e) { console.warn("IndexedDB push failed:", e); }
+  },
+  getAll: async () => {
+    try {
+      const db = await offlineQ.open();
+      return new Promise((res) => {
+        const tx = db.transaction(OFFLINE_STORE, "readonly");
+        const req = tx.objectStore(OFFLINE_STORE).getAll();
+        req.onsuccess = () => res(req.result || []);
+        req.onerror = () => res([]);
+      });
+    } catch(e) { return []; }
+  },
+  remove: async (id) => {
+    try {
+      const db = await offlineQ.open();
+      const tx = db.transaction(OFFLINE_STORE, "readwrite");
+      tx.objectStore(OFFLINE_STORE).delete(id);
+    } catch(e) {}
+  },
+  flush: async () => {
+    if (!navigator.onLine || USE_MOCK) return;
+    const items = await offlineQ.getAll();
+    for (const item of items) {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${item.table}`, {
+          method: "POST",
+          headers: sb.headers(),
+          body: JSON.stringify(item.payload),
+        });
+        if (r.ok) await offlineQ.remove(item.id);
+      } catch(e) {}
+    }
+  },
+};
+
+// ─── AUDIT LOG HELPER ─────────────────────────────────────────────────────────
+const writeAuditLog = async (action, tableName, recordId, personId, employerId, detail = {}) => {
+  const entry = {
+    actor_type: "practitioner",
+    action,
+    table_name: tableName,
+    record_id: recordId,
+    person_id: personId,
+    employer_id: employerId,
+    client_timestamp: new Date().toISOString(),
+    detail,
+  };
+  if (!navigator.onLine || USE_MOCK) {
+    await offlineQ.push({ table: "audit_log", payload: entry, client_timestamp: entry.client_timestamp });
+  } else {
+    await sb.from("audit_log").insert(entry);
+  }
+};
+
+// ─── VET VOICE MODEL (OHP style) ─────────────────────────────────────────────
+const saveSignedNote = (note) => {
+  try {
+    const notes = JSON.parse(localStorage.getItem(LS.SIGNED_NOTES) || "[]");
+    notes.unshift(note);
+    localStorage.setItem(LS.SIGNED_NOTES, JSON.stringify(notes.slice(0, 10)));
+  } catch(e) {}
+};
+
+const getStyleExamples = () => {
+  try {
+    const notes = JSON.parse(localStorage.getItem(LS.SIGNED_NOTES) || "[]");
+    return notes.slice(0, 3).map(n =>
+      `S: ${n.subjective}\nO: ${n.objective}\nA: ${n.assessment}\nP: ${n.plan}`
+    ).join("\n\n---\n\n");
+  } catch(e) { return ""; }
+};
+
+// ─── INPUT COMPONENT ─────────────────────────────────────────────────────────
+const Field = ({ label, children, style = {} }) => (
+  <div style={{ marginBottom: 10, ...style }}>
+    <div style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textTert, marginBottom: 4, fontWeight: 500 }}>{label}</div>
+    {children}
+  </div>
+);
+
+const Input = ({ value, onChange, placeholder = "", type = "text", style = {} }) => (
+  <input type={type} value={value} onChange={onChange} placeholder={placeholder}
+    style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff", ...style }} />
+);
+
+const Select = ({ value, onChange, children, style = {} }) => (
+  <select value={value} onChange={onChange}
+    style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", background: "#fff", outline: "none", ...style }}>
+    {children}
+  </select>
+);
+
+const Textarea = ({ value, onChange, rows = 3, placeholder = "" }) => (
+  <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder}
+    style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none", lineHeight: 1.6 }} />
+);
+
+// ─── ENCOUNTER DETAIL VIEW ────────────────────────────────────────────────────
+const EncounterDetail = ({ enc, onBack, session }) => {
+  const person = MOCK_PERSONS.find(p => p.id === enc.person_id);
+  const employer = MOCK_EMPLOYERS.find(e => e.id === enc.employer_id);
+  const fc = MOCK_FITNESS_CERTS.find(f => f.encounter_id === enc.id);
+  return (
+    <div>
+      <Btn variant="ghost" size="sm" onClick={onBack} style={{ marginBottom: "1rem" }}>← Back</Btn>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 500 }}>{person?.first_name} {person?.last_name}</div>
+          <div style={{ fontSize: 13, color: C.textSub }}>{employer?.name} · {enc.encounter_type.replace(/_/g," ")}</div>
+          <div style={{ fontSize: 11, color: C.textTert }}>{new Date(enc.encounter_at).toLocaleString("en-ZA")}</div>
+        </div>
+        <Badge color={enc.signed_at ? "teal" : "amber"}>{enc.signed_at ? "Signed" : "Draft"}</Badge>
+      </div>
+      {enc.vitals && (
+        <>
+          <SectionTitle>Vitals</SectionTitle>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: "1rem" }}>
+            {enc.vitals.bp_systolic && <StatCard label="Blood pressure" value={`${enc.vitals.bp_systolic}/${enc.vitals.bp_diastolic}`} sub="mmHg" />}
+            {enc.vitals.hr && <StatCard label="Heart rate" value={enc.vitals.hr} sub="bpm" />}
+            {enc.vitals.weight && <StatCard label="Weight" value={`${enc.vitals.weight}kg`} />}
+            {enc.vitals.height && <StatCard label="Height" value={`${enc.vitals.height}cm`} />}
+            {enc.vitals.bmi && <StatCard label="BMI" value={enc.vitals.bmi} color={enc.vitals.bmi > 30 ? C.amber : C.teal} />}
+            {enc.vitals.temp && <StatCard label="Temp" value={`${enc.vitals.temp}°C`} />}
+          </div>
+        </>
+      )}
+      <SectionTitle>Clinical notes</SectionTitle>
+      {[
+        { label: "Subjective (S)", value: enc.subjective },
+        { label: "Objective (O)", value: enc.objective },
+        { label: "Assessment (A)", value: enc.assessment },
+        { label: "Plan (P)", value: enc.plan },
+      ].filter(f => f.value).map(f => (
+        <Card key={f.label} style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: C.textTert, marginBottom: 4 }}>{f.label}</div>
+          <div style={{ fontSize: 13, lineHeight: 1.65, color: C.text }}>{f.value}</div>
+        </Card>
+      ))}
+      {enc.signed_at && (
+        <div style={{ fontSize: 12, color: C.textSub, marginTop: 8 }}>
+          Signed by <strong>{enc.signed_by}</strong> on {new Date(enc.signed_at).toLocaleString("en-ZA")}
+          {enc.ai_generated && <span style={{ marginLeft: 8 }}><Badge color="gray">AI-assisted</Badge></span>}
+        </div>
+      )}
+      {fc && (
+        <>
+          <SectionTitle style={{ marginTop: "1rem" }}>Fitness certificate</SectionTitle>
+          <Card style={{ border: `1px solid ${C.tealMid}`, background: C.tealLight }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: C.tealDark }}>{fc.fitness_status.replace(/_/g," ").toUpperCase()}</div>
+                <div style={{ fontSize: 12, color: C.teal }}>Valid: {new Date(fc.valid_from).toLocaleDateString("en-ZA")} – {new Date(fc.valid_until).toLocaleDateString("en-ZA")}</div>
+                {fc.restrictions?.length > 0 && <div style={{ fontSize: 12, color: C.teal, marginTop: 2 }}>Restrictions: {fc.restrictions.join(", ")}</div>}
+              </div>
+              <Btn size="sm" variant="ghost" style={{ borderColor: C.teal, color: C.teal }}>Print cert</Btn>
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── SIGN MODAL ───────────────────────────────────────────────────────────────
+const SignModal = ({ form, person, onConfirm, onCancel, session }) => {
+  const [fcEnabled, setFcEnabled] = useState(["pre_employment","periodic","exit","surveillance"].includes(form.encounter_type));
+  const [fcStatus, setFcStatus] = useState("fit");
+  const [fcRestrictions, setFcRestrictions] = useState("");
+  const [fcMonths, setFcMonths] = useState(12);
+  const [signing, setSigning] = useState(false);
+
+  const handleSign = async () => {
+    setSigning(true);
+    const now = new Date().toISOString();
+    const validFrom = now.slice(0,10);
+    const validUntil = new Date(Date.now() + fcMonths * 30 * 86400000).toISOString().slice(0,10);
+    const fc = fcEnabled ? {
+      fitness_status: fcStatus,
+      restrictions: fcRestrictions ? fcRestrictions.split(",").map(s => s.trim()).filter(Boolean) : [],
+      valid_from: validFrom,
+      valid_until: validUntil,
+      role_category: person?.job_title || "",
+    } : null;
+    await onConfirm(now, fc);
+    setSigning(false);
+  };
 
   return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem", width: "100%", maxWidth: 480 }}>
+        <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>Sign & finalise encounter</div>
+        <div style={{ fontSize: 13, color: C.textSub, marginBottom: "1.25rem" }}>
+          {person?.first_name} {person?.last_name} · {form.encounter_type.replace(/_/g," ")}
+        </div>
+        <div style={{ background: C.amberLight, border: `1px solid #E8C56A`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.amber, marginBottom: "1.25rem" }}>
+          ⚠ Once signed this record is locked and cannot be edited. Corrections require a new encounter.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1rem" }}>
+          <input type="checkbox" id="fc-toggle" checked={fcEnabled} onChange={e => setFcEnabled(e.target.checked)} style={{ width: 16, height: 16 }} />
+          <label htmlFor="fc-toggle" style={{ fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Issue fitness certificate</label>
+        </div>
+        {fcEnabled && (
+          <div style={{ background: C.bgSub, borderRadius: 8, padding: "1rem", marginBottom: "1rem" }}>
+            <Field label="Fitness status">
+              <Select value={fcStatus} onChange={e => setFcStatus(e.target.value)}>
+                <option value="fit">Fit</option>
+                <option value="fit_with_restrictions">Fit with restrictions</option>
+                <option value="temporarily_unfit">Temporarily unfit</option>
+                <option value="permanently_unfit">Permanently unfit</option>
+              </Select>
+            </Field>
+            {fcStatus === "fit_with_restrictions" && (
+              <Field label="Restrictions (comma-separated)">
+                <Input value={fcRestrictions} onChange={e => setFcRestrictions(e.target.value)} placeholder="No heights, Limited lifting..." />
+              </Field>
+            )}
+            <Field label="Valid for (months)">
+              <Select value={fcMonths} onChange={e => setFcMonths(Number(e.target.value))}>
+                {[3,6,9,12,18,24].map(m => <option key={m} value={m}>{m} months</option>)}
+              </Select>
+            </Field>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="secondary" onClick={onCancel} disabled={signing}>Cancel</Btn>
+          <Btn variant="primary" onClick={handleSign} disabled={signing}>
+            {signing ? "Signing..." : "Sign & finalise"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── VOICE TO NOTE ────────────────────────────────────────────────────────────
+const useVoiceToNote = (onResult) => {
+  const [listening, setListening] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const recRef = useRef(null);
+
+  const start = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert("Speech recognition not supported in this browser"); return; }
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-ZA";
+    rec.onresult = e => {
+      const t = Array.from(e.results).map(r => r[0].transcript).join(" ");
+      setTranscript(t);
+    };
+    rec.onend = () => setListening(false);
+    rec.start();
+    recRef.current = rec;
+    setListening(true);
+  };
+
+  const stop = async () => {
+    recRef.current?.stop();
+    setListening(false);
+    if (!transcript) return;
+    setGenerating(true);
+    try {
+      const styleExamples = getStyleExamples();
+      const systemPrompt = `You are an occupational health clinical note assistant for South Africa. Generate structured SOAP notes from voice transcripts. ${styleExamples ? `Here are examples of the practitioner's writing style:\n\n${styleExamples}` : ""} Respond ONLY with JSON: {"subjective":"...","objective":"...","assessment":"...","plan":"..."}`;
+      const res = await fetch("/.netlify/functions/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system: systemPrompt,
+          messages: [{ role: "user", content: `Generate a SOAP note from this transcript: ${transcript}` }],
+          max_tokens: 800,
+        }),
+      });
+      const data = await res.json();
+      const text = data.content?.[0]?.text || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      onResult(parsed);
+    } catch(e) {
+      console.error("Voice-to-note error:", e);
+    }
+    setGenerating(false);
+    setTranscript("");
+  };
+
+  return { listening, transcript, generating, start, stop };
+};
+
+// ─── ENCOUNTERS SCREEN ────────────────────────────────────────────────────────
+const Encounters = ({ navigate, session }) => {
+  const [encounters, setEncounters] = useState(MOCK_ENCOUNTERS);
+  const [fitnessCerts, setFitnessCerts] = useState(MOCK_FITNESS_CERTS);
+  const [view, setView] = useState("list"); // list | new | detail
+  const [selEnc, setSelEnc] = useState(null);
+  const [showSign, setShowSign] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null); // null | "saving" | "saved" | "offline"
+
+  const EMPTY_FORM = {
+    person_id: "", encounter_type: "periodic", site: "",
+    vitals: { bp_systolic: "", bp_diastolic: "", hr: "", temp: "", weight: "", height: "", bmi: "" },
+    subjective: "", objective: "", assessment: "", plan: "",
+  };
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  const setVital = (k, v) => setForm(f => ({ ...f, vitals: { ...f.vitals, [k]: v } }));
+  const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Auto-calc BMI
+  useEffect(() => {
+    const { weight, height } = form.vitals;
+    if (weight && height && Number(height) > 0) {
+      const bmi = (Number(weight) / Math.pow(Number(height) / 100, 2)).toFixed(1);
+      setForm(f => ({ ...f, vitals: { ...f.vitals, bmi } }));
+    }
+  }, [form.vitals.weight, form.vitals.height]);
+
+  const person = MOCK_PERSONS.find(p => p.id === form.person_id);
+  const employer = person ? MOCK_EMPLOYERS.find(e => e.id === person.employer_id) : null;
+
+  // Voice to note
+  const voice = useVoiceToNote((parsed) => {
+    setForm(f => ({ ...f,
+      subjective: parsed.subjective || f.subjective,
+      objective: parsed.objective || f.objective,
+      assessment: parsed.assessment || f.assessment,
+      plan: parsed.plan || f.plan,
+    }));
+  });
+
+  const handleSign = async (signedAt, fc) => {
+    setSyncStatus("saving");
+    const now = new Date().toISOString();
+    const encId = crypto.randomUUID();
+    const meta = session.user.user_metadata;
+
+    const vitalsClean = Object.fromEntries(
+      Object.entries(form.vitals).filter(([,v]) => v !== "" && v !== null)
+    );
+
+    const encRecord = {
+      id: encId,
+      person_id: form.person_id,
+      employer_id: employer?.id || "",
+      encounter_at: now,
+      client_timestamp: now,
+      encounter_type: form.encounter_type,
+      site: form.site || employer?.name || "",
+      vitals: Object.keys(vitalsClean).length > 0 ? vitalsClean : null,
+      subjective: form.subjective,
+      objective: form.objective,
+      assessment: form.assessment,
+      plan: form.plan,
+      signed_by: meta.full_name,
+      signed_at: signedAt,
+      ai_generated: voice.generating,
+    };
+
+    // Save to Supabase or offline queue
+    if (navigator.onLine && !USE_MOCK) {
+      const { error } = await sb.from("clinical_encounter").insert(encRecord);
+      if (error) {
+        await offlineQ.push({ table: "clinical_encounter", payload: encRecord, client_timestamp: now });
+        setSyncStatus("offline");
+      } else {
+        setSyncStatus("saved");
+      }
+    } else {
+      await offlineQ.push({ table: "clinical_encounter", payload: encRecord, client_timestamp: now });
+      setSyncStatus(USE_MOCK ? "saved" : "offline");
+    }
+
+    // Save fitness cert if issued
+    let fcRecord = null;
+    if (fc) {
+      fcRecord = {
+        id: crypto.randomUUID(),
+        encounter_id: encId,
+        person_id: form.person_id,
+        ...fc,
+        superseded: false,
+        client_timestamp: now,
+      };
+      if (navigator.onLine && !USE_MOCK) {
+        await sb.from("fitness_certificate").insert(fcRecord);
+      } else {
+        await offlineQ.push({ table: "fitness_certificate", payload: fcRecord, client_timestamp: now });
+      }
+    }
+
+    // Write audit log
+    await writeAuditLog("insert", "clinical_encounter", encId, form.person_id, employer?.id, {
+      encounter_type: form.encounter_type,
+      signed_by: meta.full_name,
+      fitness_cert_issued: !!fc,
+    });
+
+    // Save to style model
+    saveSignedNote({ subjective: form.subjective, objective: form.objective, assessment: form.assessment, plan: form.plan });
+
+    // Update local state
+    const newEnc = { ...encRecord, id: encId };
+    setEncounters(prev => [newEnc, ...prev]);
+    if (fcRecord) setFitnessCerts(prev => [fcRecord, ...prev]);
+
+    // Flush offline queue if online
+    if (navigator.onLine) offlineQ.flush();
+
+    setShowSign(false);
+    setView("detail");
+    setSelEnc(newEnc);
+    setTimeout(() => setSyncStatus(null), 3000);
+  };
+
+  // ── List view ──
+  if (view === "list") return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
         <div style={{ fontSize: 18, fontWeight: 500 }}>Clinical encounters</div>
-        <Btn size="sm" onClick={() => setShowNew(true)}>+ New encounter</Btn>
+        <Btn size="sm" onClick={() => { setForm(EMPTY_FORM); setView("new"); }}>+ New encounter</Btn>
       </div>
-
-      {showNew && (
-        <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
-          <SectionTitle>New encounter</SectionTitle>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-            <div>
-              <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Employee</div>
-              <select value={form.person_id} onChange={e => setForm(f => ({ ...f, person_id: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13 }}>
-                <option value="">Select employee...</option>
-                {MOCK_PERSONS.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {MOCK_EMPLOYERS.find(e => e.id === p.employer_id)?.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Type</div>
-              <select value={form.encounter_type} onChange={e => setForm(f => ({ ...f, encounter_type: e.target.value }))} style={{ width: "100%", padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13 }}>
-                {["pre_employment","periodic","exit","iod_treatment","surveillance","sick","chronic_review","drug_test_linked"].map(t => <option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
-              </select>
-            </div>
-          </div>
-          {["subjective","objective","assessment","plan"].map(field => (
-            <div key={field} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4, textTransform: "capitalize" }}>{field}</div>
-              <textarea value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} rows={2} style={{ width: "100%", padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, resize: "vertical", fontFamily: "inherit" }} />
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 8 }}>
-            <Btn size="sm" onClick={() => setShowNew(false)}>Save draft</Btn>
-            <Btn size="sm" variant="primary" disabled={!form.person_id || !form.assessment}>Sign & finalise</Btn>
-            <Btn size="sm" variant="secondary" onClick={() => setShowNew(false)}>Cancel</Btn>
-          </div>
-        </Card>
-      )}
-
-      {MOCK_ENCOUNTERS.map(enc => {
-        const person = MOCK_PERSONS.find(p => p.id === enc.person_id);
-        const employer = MOCK_EMPLOYERS.find(e => e.id === enc.employer_id);
+      {encounters.map(enc => {
+        const p = MOCK_PERSONS.find(x => x.id === enc.person_id);
+        const emp = MOCK_EMPLOYERS.find(x => x.id === enc.employer_id);
         return (
-          <Card key={enc.id} style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+          <Card key={enc.id} style={{ marginBottom: 8, cursor: "pointer" }} onClick={() => { setSelEnc(enc); setView("detail"); }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: enc.assessment ? 8 : 0 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{person?.first_name} {person?.last_name}</div>
-                <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name} · {enc.encounter_type.replace(/_/g," ")}</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{p?.first_name} {p?.last_name}</div>
+                <div style={{ fontSize: 12, color: C.textSub }}>{emp?.name} · {enc.encounter_type.replace(/_/g," ")}</div>
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <Badge color={enc.signed_at ? "teal" : "amber"}>{enc.signed_at ? "Signed" : "Draft"}</Badge>
@@ -306,6 +733,134 @@ const Encounters = ({ navigate }) => {
           </Card>
         );
       })}
+    </div>
+  );
+
+  // ── Detail view ──
+  if (view === "detail" && selEnc) return (
+    <EncounterDetail enc={selEnc} onBack={() => setView("list")} session={session} />
+  );
+
+  // ── New encounter form ──
+  const canSign = form.person_id && form.assessment && form.plan;
+
+  return (
+    <div>
+      {showSign && (
+        <SignModal
+          form={form}
+          person={person}
+          session={session}
+          onConfirm={handleSign}
+          onCancel={() => setShowSign(false)}
+        />
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+        <div>
+          <Btn variant="ghost" size="sm" onClick={() => setView("list")} style={{ marginBottom: 4 }}>← Encounters</Btn>
+          <div style={{ fontSize: 18, fontWeight: 500 }}>New encounter</div>
+          {person && <div style={{ fontSize: 13, color: C.textSub }}>{person.first_name} {person.last_name} · {employer?.name}</div>}
+        </div>
+        {syncStatus && (
+          <Badge color={syncStatus === "saved" ? "teal" : syncStatus === "offline" ? "amber" : "gray"}>
+            {syncStatus === "saving" ? "Saving..." : syncStatus === "saved" ? "✓ Saved" : "⚡ Offline — queued"}
+          </Badge>
+        )}
+      </div>
+
+      {/* Patient + type */}
+      <Card style={{ marginBottom: 10 }}>
+        <SectionTitle>Patient & encounter type</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Employee">
+            <Select value={form.person_id} onChange={e => setField("person_id", e.target.value)}>
+              <option value="">Select employee...</option>
+              {MOCK_PERSONS.map(p => (
+                <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {MOCK_EMPLOYERS.find(e => e.id === p.employer_id)?.name}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Encounter type">
+            <Select value={form.encounter_type} onChange={e => setField("encounter_type", e.target.value)}>
+              {["pre_employment","periodic","exit","iod_treatment","surveillance","sick","chronic_review","drug_test_linked"].map(t => (
+                <option key={t} value={t}>{t.replace(/_/g," ")}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Site / location">
+            <Input value={form.site} onChange={e => setField("site", e.target.value)} placeholder={employer?.name || "Site name..."} />
+          </Field>
+        </div>
+      </Card>
+
+      {/* Vitals */}
+      <Card style={{ marginBottom: 10 }}>
+        <SectionTitle>Vitals</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+          {[
+            { key: "bp_systolic", label: "BP Systolic", unit: "mmHg" },
+            { key: "bp_diastolic", label: "BP Diastolic", unit: "mmHg" },
+            { key: "hr", label: "Heart rate", unit: "bpm" },
+            { key: "temp", label: "Temperature", unit: "°C" },
+            { key: "weight", label: "Weight", unit: "kg" },
+            { key: "height", label: "Height", unit: "cm" },
+          ].map(v => (
+            <Field key={v.key} label={`${v.label} (${v.unit})`}>
+              <Input type="number" value={form.vitals[v.key]} onChange={e => setVital(v.key, e.target.value)} placeholder="—" />
+            </Field>
+          ))}
+        </div>
+        {form.vitals.bmi && (
+          <div style={{ fontSize: 12, color: Number(form.vitals.bmi) > 30 ? C.amber : C.teal, marginTop: 4 }}>
+            BMI: <strong>{form.vitals.bmi}</strong> {Number(form.vitals.bmi) > 30 ? "— Obese" : Number(form.vitals.bmi) > 25 ? "— Overweight" : "— Normal"}
+          </div>
+        )}
+      </Card>
+
+      {/* SOAP */}
+      <Card style={{ marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+          <SectionTitle style={{ margin: 0, border: "none", padding: 0 }}>Clinical notes (SOAP)</SectionTitle>
+          <div style={{ display: "flex", gap: 8 }}>
+            {voice.generating && <Badge color="amber">Generating...</Badge>}
+            {voice.listening && <Badge color="red">● Recording</Badge>}
+            <Btn
+              size="sm"
+              variant={voice.listening ? "danger" : "ghost"}
+              onClick={voice.listening ? voice.stop : voice.start}
+            >
+              {voice.listening ? "Stop & generate" : "🎙 Voice to note"}
+            </Btn>
+          </div>
+        </div>
+        {voice.transcript && (
+          <div style={{ fontSize: 12, color: C.textSub, background: C.bgSub, borderRadius: 6, padding: "6px 10px", marginBottom: 10, fontStyle: "italic" }}>
+            "{voice.transcript}"
+          </div>
+        )}
+        <Field label="S — Subjective (patient's complaint)">
+          <Textarea value={form.subjective} onChange={e => setField("subjective", e.target.value)} rows={2} placeholder="Chief complaint, history of presenting illness..." />
+        </Field>
+        <Field label="O — Objective (clinical findings)">
+          <Textarea value={form.objective} onChange={e => setField("objective", e.target.value)} rows={2} placeholder="Examination findings, observations..." />
+        </Field>
+        <Field label="A — Assessment *">
+          <Textarea value={form.assessment} onChange={e => setField("assessment", e.target.value)} rows={2} placeholder="Diagnosis / clinical impression..." />
+        </Field>
+        <Field label="P — Plan *">
+          <Textarea value={form.plan} onChange={e => setField("plan", e.target.value)} rows={2} placeholder="Treatment, referrals, follow-up..." />
+        </Field>
+      </Card>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <Btn variant="primary" disabled={!canSign} onClick={() => setShowSign(true)}>
+          Sign & finalise
+        </Btn>
+        <Btn variant="secondary" onClick={() => setView("list")}>Cancel</Btn>
+        {!canSign && <span style={{ fontSize: 12, color: C.textTert }}>Assessment and Plan required to sign</span>}
+      </div>
     </div>
   );
 };
@@ -644,7 +1199,7 @@ export default function App() {
   const screens = {
     dashboard: <Dashboard session={session} navigate={navigate} />,
     employers: <Employers navigate={navigate} />,
-    encounters: <Encounters navigate={navigate} />,
+    encounters: <Encounters navigate={navigate} session={session} />,
     surveillance: <Surveillance />,
     fitness: <FitnessCerts />,
     iod: <IODRegister />,
