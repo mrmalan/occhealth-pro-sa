@@ -619,8 +619,12 @@ const useVoiceToNote = (onResult) => {
 
 // ─── ENCOUNTERS SCREEN ────────────────────────────────────────────────────────
 const Encounters = ({ navigate, session }) => {
-  const [encounters, setEncounters] = useState(MOCK_ENCOUNTERS);
-  const [fitnessCerts, setFitnessCerts] = useState(MOCK_FITNESS_CERTS);
+  const { encounters: ctxEncounters, fitnessCerts: ctxFitnessCerts } = useData();
+  const [encounters, setEncounters] = useState(ctxEncounters);
+  const [fitnessCerts, setFitnessCerts] = useState(ctxFitnessCerts);
+  // Sync local state when DataContext loads live data
+  useEffect(() => { setEncounters(ctxEncounters); }, [ctxEncounters]);
+  useEffect(() => { setFitnessCerts(ctxFitnessCerts); }, [ctxFitnessCerts]);
   const [view, setView] = useState("list"); // list | new | detail
   const [selEnc, setSelEnc] = useState(null);
   const [showSign, setShowSign] = useState(false);
@@ -974,15 +978,17 @@ const Surveillance = () => (
   </div>
 );
 
-const FitnessCerts = () => (
+const FitnessCerts = () => {
+  const { fitnessCerts, persons, employers } = useData();
+  return (
   <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
       <div style={{ fontSize: 18, fontWeight: 500 }}>Fitness certificates</div>
       <Btn size="sm">+ Issue certificate</Btn>
     </div>
-    {MOCK_FITNESS_CERTS.map(fc => {
-      const person = MOCK_PERSONS.find(p => p.id === fc.person_id);
-      const employer = MOCK_EMPLOYERS.find(e => e.id === person?.employer_id);
+    {fitnessCerts.map(fc => {
+      const person = persons.find(p => p.id === fc.person_id);
+      const employer = employers.find(e => e.id === person?.employer_id);
       const daysLeft = Math.round((new Date(fc.valid_until) - new Date()) / 86400000);
       return (
         <Card key={fc.id} style={{ marginBottom: 8 }}>
@@ -1001,7 +1007,8 @@ const FitnessCerts = () => (
       );
     })}
   </div>
-);
+  );
+};
 
 const IODRegister = () => (
   <div>
@@ -1261,7 +1268,11 @@ const OnboardingWizard = ({ session, onComplete }) => {
   const saveEmployer = async () => {
     if (!employer.name) { setError("Employer name is required"); return; }
     setSaving(true); setError("");
-    const { data, error: err } = await db.from("employer").insert({ ...employer, tenant_id: tenantId, created_at: new Date().toISOString() });
+    const empData = { name: employer.name, tenant_id: tenantId, coida_insurer: employer.coida_insurer, created_at: new Date().toISOString() };
+    if (employer.coida_ref) empData.coida_ref = employer.coida_ref;
+    if (employer.industry_class) empData.industry_class = employer.industry_class;
+    if (employer.contact_email) empData.contact_email = employer.contact_email;
+    const { data, error: err } = await db.from("employer").insert(empData);
     if (err || !data?.[0]) { setError("Failed to save employer."); setSaving(false); return; }
     setEmployerId(data[0].id);
     setSaving(false);
@@ -1273,7 +1284,18 @@ const OnboardingWizard = ({ session, onComplete }) => {
     const valid = employees.filter(e => e.first_name && e.last_name);
     if (valid.length === 0) { setStep(5); setSaving(false); return; }
     for (const emp of valid) {
-      await db.from("person").insert({ ...emp, employer_id: employerId, employment_status: "active", created_at: new Date().toISOString() });
+      const personData = {
+        first_name: emp.first_name,
+        last_name: emp.last_name,
+        employer_id: employerId,
+        employment_status: "active",
+        created_at: new Date().toISOString(),
+      };
+      if (emp.employee_number) personData.employee_number = emp.employee_number;
+      if (emp.job_title) personData.job_title = emp.job_title;
+      if (emp.department) personData.department = emp.department;
+      if (emp.site) personData.site = emp.site;
+      await db.from("person").insert(personData);
     }
     setSaving(false);
     setStep(5);
