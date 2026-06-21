@@ -1758,7 +1758,7 @@ const Surveillance = () => {
       const [profRes, enrolRes, evtRes] = await Promise.all([
         db.from("hazard_profile").select("*"),
         db.from("person_hazard").select("*"),
-        db.from("surveillance_event").select("*&order=scheduled_date.asc"),
+        db.from("surveillance_event").select("*").order("scheduled_date", { ascending: true }),
       ]);
       if (profRes.data?.length) setProfiles(profRes.data);
       if (enrolRes.data) setEnrolments(enrolRes.data);
@@ -2200,10 +2200,10 @@ const IODRegister = () => {
   // Load live IOD data + COIDA claims from Supabase on mount
   useEffect(() => {
     if (!db || USE_MOCK) return;
-    db.from("iod_incident").select("order=incident_at.desc&limit=200").then(res => {
+    db.from("iod_incident").select("*").order("incident_at", { ascending: false }).limit(200).then(res => {
       if (res.data?.length) setLiveIODs(res.data);
     }).catch(() => {});
-    db.from("coida_claim").select("order=created_at.desc&limit=500").then(res => {
+    db.from("coida_claim").select("*").order("created_at", { ascending: false }).limit(500).then(res => {
       if (res.data?.length) {
         const map = {};
         res.data.forEach(c => { map[c.iod_incident_id] = c; });
@@ -2674,7 +2674,7 @@ const DrugTesting = () => {
   // Load live drug test data from Supabase on mount
   useEffect(() => {
     if (!db || USE_MOCK) return;
-    db.from("drug_test").select("order=tested_at.desc&limit=200").then(res => {
+    db.from("drug_test").select("*").order("tested_at", { ascending: false }).limit(200).then(res => {
       if (res.data?.length) setLiveTests(res.data);
     }).catch(() => {});
   }, [db]);
@@ -3346,7 +3346,7 @@ const FinanceBilling = ({ session }) => {
       ]);
       return;
     }
-    db.from("invoice").select("order=issue_date.desc&limit=200").then(res => {
+    db.from("invoice").select("*").order("issue_date", { ascending: false }).limit(200).then(res => {
       if (res.data?.length) setInvoices(res.data);
     }).catch(() => {});
   }, [db, employers[0]?.id]);
@@ -3808,11 +3808,11 @@ const FinanceBilling = ({ session }) => {
 // ══════════════════════════════════════════════════════════════
 const OccFlowboard = () => {
   const { practitioners, employers } = useData();
-  const [appts, setAppts] = React.useState(MOCK_OCC_FLOWBOARD);
-  const [view, setView] = React.useState("list"); // list | byprac | timeline | register | monthly
-  const [selAppt, setSelAppt] = React.useState(null);
-  const [kpiFilter, setKpiFilter] = React.useState(null);
-  const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().slice(0,10));
+  const [appts, setAppts] = useState(MOCK_OCC_FLOWBOARD);
+  const [view, setView] = useState("list"); // list | byprac | timeline | register | monthly
+  const [selAppt, setSelAppt] = useState(null);
+  const [kpiFilter, setKpiFilter] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0,10));
 
   // Build practitioner display list from DB or mock
   const pracs = practitioners?.length
@@ -4129,7 +4129,7 @@ const OccFlowboard = () => {
 
   // ── MONTHLY VIEW ──
   const MonthlyView = () => {
-    const [expanded, setExpanded] = React.useState(null);
+    const [expanded, setExpanded] = useState(null);
     const data = MOCK_OCC_MONTHLY;
     const maxRev = Math.max(...data.map(d=>d.dayRevenue));
     return (
@@ -4290,11 +4290,11 @@ const OccFlowboard = () => {
 // STOCK & CALIBRATION
 // ══════════════════════════════════════════════════════════════
 const StockCalibration = () => {
-  const [tab, setTab] = React.useState("stock"); // stock | calibration
-  const [stock, setStock] = React.useState(MOCK_OCC_STOCK);
-  const [calibration, setCalibration] = React.useState(MOCK_OCC_CALIBRATION);
-  const [editStock, setEditStock] = React.useState(null);
-  const [editCal, setEditCal] = React.useState(null);
+  const [tab, setTab] = useState("stock"); // stock | calibration
+  const [stock, setStock] = useState(MOCK_OCC_STOCK);
+  const [calibration, setCalibration] = useState(MOCK_OCC_CALIBRATION);
+  const [editStock, setEditStock] = useState(null);
+  const [editCal, setEditCal] = useState(null);
 
   const today = new Date();
   const daysDiff = (dateStr) => dateStr ? Math.ceil((new Date(dateStr)-today)/(1000*60*60*24)) : null;
@@ -5114,7 +5114,7 @@ export default function App() {
         db.from("employer").select(""),
         db.from("person").select(""),
         db.from("clinical_encounter").select("limit=100"),
-        db.from("fitness_certificate").select("superseded=eq.false&limit=100"),
+        db.from("fitness_certificate").select("*").eq("superseded", false).limit(100),
       ]);
       if (empRes.data) setLiveEmployers(empRes.data);
       if (persRes.data) setLivePersons(persRes.data);
