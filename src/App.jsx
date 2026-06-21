@@ -4673,12 +4673,57 @@ const OccFlowboard = () => {
               <div key={l}><div style={{color:C.textTert,fontSize:11}}>{l}</div><div style={{fontWeight:500,marginTop:1}}>{v}</div></div>
             ))}
           </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
             {appt.status==="scheduled"&&!appt.arrived&&<Btn size="sm" variant="secondary" onClick={()=>{setStatus(appt.id,"waiting");onClose();}}>Mark arrived</Btn>}
             {appt.status==="waiting"&&<Btn size="sm" onClick={()=>{setStatus(appt.id,"in_progress");onClose();}}>Start session</Btn>}
             {appt.status==="in_progress"&&<Btn size="sm" onClick={()=>{setStatus(appt.id,"done");onClose();}}>✓ Mark done</Btn>}
             {appt.status==="done"&&!appt.invoiced&&<Btn size="sm" variant="secondary" onClick={()=>{setAppts(p=>p.map(a=>a.id===appt.id?{...a,invoiced:true}:a));onClose();}}>Mark invoiced</Btn>}
           </div>
+          {/* Reschedule */}
+          {["scheduled","waiting"].includes(appt.status) && (() => {
+            const [showR, setShowR] = useState(false);
+            const [newTime, setNewTime] = useState(appt.time||"08:00");
+            const [newBay, setNewBay] = useState(appt.bay||"Bay 1");
+            const [newDur, setNewDur] = useState(String(appt.dur||30));
+            const doReschedule = () => {
+              setAppts(prev => prev.map(a => a.id===appt.id ? {...a, time:newTime, bay:newBay, dur:parseInt(newDur)||appt.dur} : a));
+              setShowR(false); onClose();
+            };
+            return showR ? (
+              <div style={{background:C.bgSub,borderRadius:8,padding:"10px 12px",marginTop:4}}>
+                <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Reschedule</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 80px",gap:8,marginBottom:8}}>
+                  <div>
+                    <div style={{fontSize:10,color:C.textTert,marginBottom:3}}>TIME</div>
+                    <input type="time" value={newTime} onChange={e=>setNewTime(e.target.value)}
+                      style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13,boxSizing:"border-box"}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:C.textTert,marginBottom:3}}>BAY</div>
+                    <select value={newBay} onChange={e=>setNewBay(e.target.value)}
+                      style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}>
+                      {["Bay 1","Bay 2","Bay 3","Consultation room","Procedure room"].map(b=><option key={b}>{b}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:C.textTert,marginBottom:3}}>DURATION</div>
+                    <select value={newDur} onChange={e=>setNewDur(e.target.value)}
+                      style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13}}>
+                      {["15","20","30","45","60","90"].map(d=><option key={d} value={d}>{d}m</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn size="sm" onClick={doReschedule}>Confirm</Btn>
+                  <Btn size="sm" variant="secondary" onClick={()=>setShowR(false)}>Cancel</Btn>
+                </div>
+              </div>
+            ) : (
+              <button onClick={()=>setShowR(true)} style={{fontSize:12,color:C.textSub,background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",marginTop:4}}>
+                ⇅ Reschedule
+              </button>
+            );
+          })()}
         </div>
       </div>
     );
