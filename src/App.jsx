@@ -314,9 +314,151 @@ const Dashboard = ({ session, navigate }) => {
 
 const EMPLOYMENT_STATUSES = ["active", "contractor", "terminated"];
 
+// ── Person detail view ────────────────────────────────────────────────────────
+const PersonDetail = ({ person, employer, onBack }) => {
+  const { encounters, fitnessCerts, db } = useData();
+  const [drugTests, setDrugTests] = useState([]);
+  const [iods, setIods] = useState([]);
+  const [survEvents, setSurvEvents] = useState([]);
+
+  useEffect(() => {
+    if (!db || !person?.id) return;
+    db.from("drug_test").select(`person_id=eq.${person.id}&order=tested_at.desc&limit=20`).then(r => { if (r.data) setDrugTests(r.data); });
+    db.from("iod_incident").select(`person_id=eq.${person.id}&order=incident_at.desc&limit=20`).then(r => { if (r.data) setIods(r.data); });
+    db.from("surveillance_event").select(`person_id=eq.${person.id}&order=scheduled_date.desc&limit=30`).then(r => { if (r.data) setSurvEvents(r.data); });
+  }, [db, person?.id]);
+
+  const personEncounters = encounters.filter(e => e.person_id === person.id);
+  const personCerts = fitnessCerts.filter(f => f.person_id === person.id && !f.superseded);
+  const activeCert = personCerts[0];
+
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+
+  return (
+    <div>
+      <Btn variant="ghost" size="sm" onClick={onBack} style={{ marginBottom: "1rem" }}>← Back to employees</Btn>
+
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 500 }}>{person.first_name} {person.last_name}</div>
+          <div style={{ fontSize: 13, color: C.textSub, marginTop: 2 }}>
+            {[person.job_title, person.department, person.site, employer?.name].filter(Boolean).join(" · ")}
+          </div>
+        </div>
+        <Badge color={person.employment_status === "active" ? "teal" : person.employment_status === "contractor" ? "amber" : "gray"}>
+          {person.employment_status}
+        </Badge>
+      </div>
+
+      {/* Current fitness cert alert */}
+      {activeCert && (
+        <div style={{ background: new Date(activeCert.valid_until) < new Date() ? C.redLight : C.tealLight, border: `1px solid ${new Date(activeCert.valid_until) < new Date() ? C.red : C.tealMid}`, borderRadius: 8, padding: "10px 14px", marginBottom: "1rem" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: new Date(activeCert.valid_until) < new Date() ? C.red : C.teal, marginBottom: 2 }}>
+            {new Date(activeCert.valid_until) < new Date() ? "⚠ Fitness certificate EXPIRED" : "✓ Fitness certificate current"}
+          </div>
+          <div style={{ fontSize: 12, color: C.textSub }}>
+            Status: <strong>{activeCert.fitness_status?.replace(/_/g," ")}</strong> · Valid until: <strong>{activeCert.valid_until}</strong>
+            {activeCert.restrictions?.length > 0 && <span> · Restrictions: {activeCert.restrictions.join(", ")}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Personal details */}
+      <Card style={{ marginBottom: "1rem" }}>
+        <SectionTitle>Personal details</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+          {[
+            ["Employee number", person.employee_number],
+            ["ID number", person.id_number],
+            ["Date of birth", person.date_of_birth],
+            ["Gender", person.gender],
+            ["Start date", person.start_date],
+            ["Job title", person.job_title],
+            ["Department", person.department],
+            ["Site", person.site],
+          ].map(([label, value]) => value ? (
+            <div key={label} style={{ padding: "6px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
+              <div style={{ fontSize: 10, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+              <div style={{ fontWeight: 500, marginTop: 1 }}>{value}</div>
+            </div>
+          ) : null)}
+        </div>
+      </Card>
+
+      {/* Encounters */}
+      <Card style={{ marginBottom: "1rem" }}>
+        <SectionTitle>Clinical encounters ({personEncounters.length})</SectionTitle>
+        {personEncounters.length === 0
+          ? <div style={{ fontSize: 13, color: C.textTert }}>No encounters recorded.</div>
+          : personEncounters.slice(0,5).map(enc => (
+            <div key={enc.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>{enc.encounter_type?.replace(/_/g," ")}</div>
+                <div style={{ fontSize: 11, color: C.textTert }}>{new Date(enc.encounter_at).toLocaleDateString("en-ZA")}</div>
+              </div>
+              <Badge color={enc.signed_at ? "teal" : "amber"}>{enc.signed_at ? "Signed" : "Draft"}</Badge>
+            </div>
+          ))
+        }
+      </Card>
+
+      {/* Surveillance */}
+      {survEvents.length > 0 && (
+        <Card style={{ marginBottom: "1rem" }}>
+          <SectionTitle>Surveillance history ({survEvents.length})</SectionTitle>
+          {survEvents.slice(0,6).map(ev => (
+            <div key={ev.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>{ev.test_type?.replace(/_/g," ")}</div>
+                <div style={{ fontSize: 11, color: C.textTert }}>{ev.scheduled_date}</div>
+              </div>
+              <Badge color={ev.status === "completed" ? "teal" : ev.status === "overdue" ? "red" : "gray"}>{ev.status}</Badge>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* Drug tests */}
+      {drugTests.length > 0 && (
+        <Card style={{ marginBottom: "1rem" }}>
+          <SectionTitle>Drug & alcohol tests ({drugTests.length})</SectionTitle>
+          {drugTests.slice(0,5).map(dt => (
+            <div key={dt.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>{dt.test_reason?.replace(/_/g," ")} · {dt.specimen_type}</div>
+                <div style={{ fontSize: 11, color: C.textTert }}>{new Date(dt.tested_at).toLocaleDateString("en-ZA")}</div>
+              </div>
+              <Badge color={dt.result === "negative" ? "teal" : dt.result === "positive" ? "red" : "amber"}>{dt.result}</Badge>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* IOD */}
+      {iods.length > 0 && (
+        <Card>
+          <SectionTitle>IOD incidents ({iods.length})</SectionTitle>
+          {iods.slice(0,5).map(iod => (
+            <div key={iod.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>{iod.incident_type?.replace(/_/g," ")} · {iod.severity?.replace(/_/g," ")}</div>
+                <div style={{ fontSize: 11, color: C.textTert }}>{new Date(iod.incident_at).toLocaleDateString("en-ZA")}</div>
+              </div>
+              <Badge color={iod.severity === "fatality" ? "red" : iod.severity === "lost_time" ? "amber" : "gray"}>{iod.severity?.replace(/_/g," ")}</Badge>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+};
+
 const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
   const [showAddPerson, setShowAddPerson] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selPerson, setSelPerson] = useState(null);
   const EMPTY_PERSON = {
     first_name: "", last_name: "", id_number: "", date_of_birth: "",
     gender: "", job_title: "", department: "", site: "",
@@ -361,6 +503,16 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
     setSaving(false);
   };
 
+  // Show person detail if one is selected
+  if (selPerson) {
+    return <PersonDetail person={selPerson} employer={employer} onBack={() => setSelPerson(null)} />;
+  }
+
+  const filteredPersons = localPersons.filter(p => {
+    const q = search.toLowerCase();
+    return !q || `${p.first_name} ${p.last_name} ${p.job_title || ""} ${p.department || ""} ${p.employee_number || ""}`.toLowerCase().includes(q);
+  });
+
   return (
     <div>
       <Btn variant="ghost" size="sm" onClick={onBack} style={{ marginBottom: "1rem" }}>← Back</Btn>
@@ -369,12 +521,24 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
         COIDA ref: {employer.coida_ref || "—"} · Insurer: {(employer.coida_insurer || "").replace(/_/g, " ").toUpperCase()}
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <SectionTitle style={{ marginBottom: 0 }}>Employees ({localPersons.length})</SectionTitle>
         <Btn size="sm" onClick={() => setShowAddPerson(v => !v)}>
           {showAddPerson ? "Cancel" : "+ Add employee"}
         </Btn>
       </div>
+      {localPersons.length > 0 && (
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name, job title, department…"
+            style={{ width: "100%", padding: "8px 10px 8px 32px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box", background: C.bgCard }}
+          />
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: C.textTert }}>🔍</span>
+          {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", fontSize: 14, color: C.textTert, cursor: "pointer" }}>✕</button>}
+        </div>
+      )}
 
       {showAddPerson && (
         <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
@@ -444,19 +608,25 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
         </Card>
       )}
 
-      {localPersons.map(p => (
-        <Card key={p.id} style={{ marginBottom: 8 }}>
+      {filteredPersons.length === 0 && localPersons.length > 0 && (
+        <div style={{ fontSize: 13, color: C.textTert, padding: "1rem 0", textAlign: "center" }}>No employees match "{search}"</div>
+      )}
+      {filteredPersons.map(p => (
+        <Card key={p.id} style={{ marginBottom: 8, cursor: "pointer" }} onClick={() => setSelPerson(p)}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{p.first_name} {p.last_name}</div>
-              <div style={{ fontSize: 12, color: C.textSub }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: C.teal }}>{p.first_name} {p.last_name}</div>
+              <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>
                 {[p.job_title, p.department, p.site].filter(Boolean).join(" · ")}
               </div>
-              {p.id_number && <div style={{ fontSize: 11, color: C.textTert }}>ID: {p.id_number}</div>}
+              {p.employee_number && <div style={{ fontSize: 11, color: C.textTert, marginTop: 1 }}>Emp #: {p.employee_number}</div>}
             </div>
-            <Badge color={p.employment_status === "active" ? "teal" : p.employment_status === "contractor" ? "amber" : "gray"}>
-              {p.employment_status}
-            </Badge>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Badge color={p.employment_status === "active" ? "teal" : p.employment_status === "contractor" ? "amber" : "gray"}>
+                {p.employment_status}
+              </Badge>
+              <span style={{ fontSize: 16, color: C.textTert }}>›</span>
+            </div>
           </div>
         </Card>
       ))}
