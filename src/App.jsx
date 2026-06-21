@@ -1600,6 +1600,36 @@ const ResultCaptureModal = ({ event, person, onSave, onClose, db }) => {
 };
 
 // ── Main Surveillance Screen ──────────────────────────────────────────────────
+// Generate ICS calendar file from surveillance events
+const generateSurveillanceICS = (events, persons) => {
+  const lines = [
+    "BEGIN:VCALENDAR","VERSION:2.0",
+    "PRODID:-//OccHealth Pro SA//Surveillance Schedule//EN",
+    "CALSCALE:GREGORIAN","METHOD:PUBLISH",
+  ];
+  const now = new Date().toISOString().replace(/[-:]/g,"").slice(0,15) + "Z";
+  events.filter(e => ["scheduled","overdue"].includes(e.status)).forEach(ev => {
+    const person = persons.find(p => p.id === ev.person_id);
+    const name = person ? `${person.first_name} ${person.last_name}` : "Employee";
+    const dateStr = (ev.scheduled_date || "").replace(/-/g,"");
+    if (!dateStr) return;
+    const uid = `surv-${ev.id || Math.random().toString(36).slice(2)}@occhealth-pro-sa`;
+    const typeName = (ev.test_type || "test").replace(/_/g," ");
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${uid}`,
+      `DTSTAMP:${now}`,
+      `DTSTART;VALUE=DATE:${dateStr}`,
+      `SUMMARY:Surveillance due: ${typeName} — ${name}`,
+      `DESCRIPTION:Test type: ${typeName}\nEmployee: ${name}\nStatus: ${ev.status}`,
+      `STATUS:${ev.status === "overdue" ? "CANCELLED" : "CONFIRMED"}`,
+      "END:VEVENT"
+    );
+  });
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+};
+
 const Surveillance = () => {
   const { employers, persons, db, refreshData } = useData();
 
@@ -1773,6 +1803,13 @@ const Surveillance = () => {
           <Btn size="sm" variant="secondary" onClick={runScheduler} disabled={schedulerRunning}>
             {schedulerRunning ? "Running..." : "⟳ Run scheduler"}
           </Btn>
+          <Btn size="sm" variant="secondary" onClick={() => {
+            const ics = generateSurveillanceICS(events, persons);
+            const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = "surveillance-schedule.ics"; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+          }}>📅 Export .ics</Btn>
           <Btn size="sm" onClick={() => setShowNewProfile(true)}>+ New hazard profile</Btn>
         </div>
       </div>
@@ -1997,6 +2034,10 @@ const IODRegister = () => {
   const [liveIODs, setLiveIODs] = useState(null);
   const [coidaClaims, setCoidaClaims] = useState({}); // keyed by iod_incident_id → claim row
   const [claimSaving, setClaimSaving] = useState(null); // iod.id being saved
+  const [editingRef, setEditingRef] = useState(null); // iod.id whose ref is being edited
+  const [refDraft, setRefDraft] = useState(""); // draft value for claim_reference input
+  const [editingAmount, setEditingAmount] = useState(null); // iod.id whose amount is being edited
+  const [amountDraft, setAmountDraft] = useState(""); // draft value for amount_awarded input
 
   const EMPTY_IOD = {
     person_id: "", employer_id: "",
@@ -2115,6 +2156,32 @@ const IODRegister = () => {
       }
     } catch(e) { console.warn("Claim save error", e); }
     setClaimSaving(null);
+  };
+
+  const saveClaimRef = async (iod, ref) => {
+    const existing = coidaClaims[iod.id];
+    if (!existing) return;
+    const updated = { ...existing, claim_reference: ref };
+    setCoidaClaims(prev => ({ ...prev, [iod.id]: updated }));
+    if (!USE_MOCK && db) {
+      try { await db.from("coida_claim").update({ claim_reference: ref }).eq("id", existing.id); }
+      catch(e) { console.warn("Ref save error", e); }
+    }
+    setEditingRef(null);
+  };
+
+  const saveClaimAmount = async (iod, amount) => {
+    const existing = coidaClaims[iod.id];
+    if (!existing) return;
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed)) { setEditingAmount(null); return; }
+    const updated = { ...existing, amount_awarded: parsed };
+    setCoidaClaims(prev => ({ ...prev, [iod.id]: updated }));
+    if (!USE_MOCK && db) {
+      try { await db.from("coida_claim").update({ amount_awarded: parsed }).eq("id", existing.id); }
+      catch(e) { console.warn("Amount save error", e); }
+    }
+    setEditingAmount(null);
   };
 
   const iods = liveIODs ?? MOCK_IOD;
@@ -2276,6 +2343,49 @@ const IODRegister = () => {
             </div>
           </div>
           <div style={{ fontSize: 12, color: C.textSub, background: C.bgSub, borderRadius: 6, padding: "6px 10px", marginBottom: 8 }}>{iod.narrative}</div>
+
+          {/* Claim ref (acknowledged+) and amount awarded (approved/paid) */}
+          {claim && ["acknowledged","assessed","approved","paid"].includes(claim.status) && (
+            <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: C.textTert }}>Fund ref:</span>
+                {editingRef === iod.id ? (
+                  <>
+                    <input autoFocus value={refDraft} onChange={e => setRefDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") saveClaimRef(iod, refDraft); if (e.key === "Escape") setEditingRef(null); }}
+                      style={{ fontSize: 12, padding: "2px 6px", borderRadius: 5, border: `1px solid ${C.teal}`, width: 140 }} />
+                    <button onClick={() => saveClaimRef(iod, refDraft)} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, background: C.teal, color: "#fff", border: "none", cursor: "pointer" }}>Save</button>
+                    <button onClick={() => setEditingRef(null)} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 5, background: "none", border: `1px solid ${C.border}`, cursor: "pointer" }}>✕</button>
+                  </>
+                ) : (
+                  <button onClick={() => { setEditingRef(iod.id); setRefDraft(claim.claim_reference || ""); }}
+                    style={{ fontSize: 12, color: claim.claim_reference ? C.text : C.textTert, background: "none", border: `1px dashed ${C.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer" }}>
+                    {claim.claim_reference || "Add ref…"}
+                  </button>
+                )}
+              </div>
+              {["approved","paid"].includes(claim.status) && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: C.textTert }}>Amount awarded:</span>
+                  {editingAmount === iod.id ? (
+                    <>
+                      <input autoFocus type="number" min="0" step="0.01" value={amountDraft} onChange={e => setAmountDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") saveClaimAmount(iod, amountDraft); if (e.key === "Escape") setEditingAmount(null); }}
+                        style={{ fontSize: 12, padding: "2px 6px", borderRadius: 5, border: `1px solid ${C.teal}`, width: 100 }} />
+                      <button onClick={() => saveClaimAmount(iod, amountDraft)} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, background: C.teal, color: "#fff", border: "none", cursor: "pointer" }}>Save</button>
+                      <button onClick={() => setEditingAmount(null)} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 5, background: "none", border: `1px solid ${C.border}`, cursor: "pointer" }}>✕</button>
+                    </>
+                  ) : (
+                    <button onClick={() => { setEditingAmount(iod.id); setAmountDraft(claim.amount_awarded?.toString() || ""); }}
+                      style={{ fontSize: 12, color: claim.amount_awarded ? C.teal : C.textTert, fontWeight: claim.amount_awarded ? 600 : 400, background: "none", border: `1px dashed ${C.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer" }}>
+                      {claim.amount_awarded ? `R ${Number(claim.amount_awarded).toLocaleString("en-ZA", { minimumFractionDigits: 2 })}` : "Add amount…"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Btn size="sm" variant="ghost" onClick={() => generateWCL2(iod)} disabled={generatingId === iod.id + "_wcl2"}>
               {generatingId === iod.id + "_wcl2" ? "Generating..." : "Generate W.Cl.2"}
@@ -4350,16 +4460,7 @@ export default function App() {
           <Sidebar screen={screen} setScreen={setScreen} session={session} onLogout={handleLogout} view={view} />
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
             <TopBar screen={screen} nav={nav} />
-            {USE_MOCK && (
-              <div style={{ background: C.bgSub, borderBottom: `0.5px solid ${C.border}`, padding: "6px 1.5rem", display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: C.textTert }}>View:</span>
-                {["ohp","employer","bureau"].map(v => (
-                  <button key={v} onClick={() => { setView(v); setScreen(v === "employer" ? "portal" : "dashboard"); }} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, border: `1px solid ${C.border}`, background: view === v ? C.teal : "#fff", color: view === v ? "#fff" : C.textSub, cursor: "pointer" }}>
-                    {v === "ohp" ? "OHP Clinical" : v === "employer" ? "Employer Portal" : "Bureau Ops"}
-                  </button>
-                ))}
-              </div>
-            )}
+
             {dataLoading && (
               <div style={{ background: C.tealLight, borderBottom: `0.5px solid ${C.tealMid}`, padding: "4px 1.5rem", fontSize: 12, color: C.teal }}>
                 Loading your data...
