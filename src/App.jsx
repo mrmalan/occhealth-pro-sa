@@ -520,35 +520,123 @@ const Employers = ({ navigate }) => {
 };
 
 // ─── SUPABASE CLIENT ─────────────────────────────────────────────────────────
-const sb = {
-  headers: () => ({
-    "apikey": SUPABASE_ANON,
-    "Authorization": `Bearer ${SUPABASE_ANON}`,
-    "Content-Type": "application/json",
-    "Prefer": "return=representation",
-  }),
-  from: (table) => ({
-    insert: async (row) => {
-      if (USE_MOCK) return { data: [{ ...row, id: crypto.randomUUID() }], error: null };
-      try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-          method: "POST", headers: sb.headers(), body: JSON.stringify(row),
-        });
-        const data = await r.json();
-        return { data: Array.isArray(data) ? data : [data], error: r.ok ? null : data };
-      } catch(e) { return { data: null, error: e }; }
+// Builder pattern: supports .insert().select(), .update().eq(), .select().order().limit() etc.
+const makeClient = (getHeaders) => {
+  const client = {
+    from: (table) => {
+      // Builder state
+      let _method = "GET";
+      let _body = null;
+      let _filters = [];   // ["col=eq.val", ...]
+      let _order = null;   // "col.asc" | "col.desc"
+      let _limit = null;
+      let _wantReturn = false;
+      let _upsertConflict = null;
+
+      const buildQS = () => {
+        const parts = [..._filters];
+        if (_order) parts.push(`order=${_order}`);
+        if (_limit) parts.push(`limit=${_limit}`);
+        return parts.length ? `?${parts.join("&")}` : "";
+      };
+
+      const execute = async () => {
+        if (USE_MOCK) {
+          if (_method === "POST" || _method === "PATCH") {
+            const row = typeof _body === "string" ? JSON.parse(_body) : _body;
+            if (Array.isArray(row)) return { data: row.map(r => ({ ...r, id: r.id || crypto.randomUUID() })), error: null };
+            return { data: [{ ...row, id: row.id || crypto.randomUUID() }], error: null };
+          }
+          return { data: [], error: null };
+        }
+        try {
+          const headers = { ...getHeaders() };
+          if (_wantReturn) headers["Prefer"] = "return=representation";
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}${buildQS()}`, {
+            method: _method, headers, body: _body,
+          });
+          const text = await r.text();
+          let data = null;
+          try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+          if (!r.ok) return { data: null, error: data || { message: r.statusText } };
+          return { data: Array.isArray(data) ? data : (data ? [data] : []), error: null };
+        } catch(e) { return { data: null, error: e }; }
+      };
+
+      const builder = {
+        // Terminal: run the query
+        then: (res, rej) => execute().then(res, rej),
+
+        // READ
+        select: (filter = "") => {
+          _method = "GET";
+          if (filter) _filters.push(...filter.split("&").filter(Boolean));
+          return builder;
+        },
+        order: (col, opts = {}) => {
+          _order = `${col}.${opts.ascending === false ? "desc" : opts.ascending === true ? "asc" : "desc"}`;
+          return builder;
+        },
+        limit: (n) => { _limit = n; return builder; },
+        eq: (col, val) => { _filters.push(`${col}=eq.${val}`); return builder; },
+        neq: (col, val) => { _filters.push(`${col}=neq.${val}`); return builder; },
+        is: (col, val) => { _filters.push(`${col}=is.${val}`); return builder; },
+        not: (col, op, val) => { _filters.push(`${col}=not.${op}.${val}`); return builder; },
+
+        // WRITE
+        insert: (row) => {
+          _method = "POST";
+          _body = JSON.stringify(row);
+          _wantReturn = true;
+          return builder;
+        },
+        update: (vals) => {
+          _method = "PATCH";
+          _body = JSON.stringify(vals);
+          _wantReturn = true;
+          return builder;
+        },
+        upsert: (rows, opts = {}) => {
+          _method = "POST";
+          _body = JSON.stringify(rows);
+          _wantReturn = true;
+          if (opts.onConflict) {
+            _filters.push(`on_conflict=${opts.onConflict}`);
+          }
+          // Supabase upsert uses Prefer header
+          return {
+            ...builder,
+            then: (res, rej) => {
+              const h = { ...getHeaders(), "Prefer": `resolution=merge-duplicates,return=representation` };
+              if (USE_MOCK) return Promise.resolve({ data: [], error: null }).then(res, rej);
+              return fetch(`${SUPABASE_URL}/rest/v1/${table}${buildQS()}`, {
+                method: "POST", headers: h, body: _body,
+              }).then(async r => {
+                const text = await r.text();
+                let data = null;
+                try { data = text ? JSON.parse(text) : null; } catch {}
+                return r.ok ? { data: data || [], error: null } : { data: null, error: data };
+              }).then(res, rej);
+            }
+          };
+        },
+        delete: () => {
+          _method = "DELETE";
+          return builder;
+        },
+      };
+      return builder;
     },
-    select: async (filter = "") => {
-      if (USE_MOCK) return { data: [], error: null };
-      try {
-        const qs = filter ? `?${filter}` : "";
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}${qs}`, { headers: sb.headers() });
-        const data = await r.json();
-        return { data: Array.isArray(data) ? data : [], error: r.ok ? null : data };
-      } catch(e) { return { data: null, error: e }; }
-    },
-  }),
+  };
+  return client;
 };
+
+const sb = makeClient(() => ({
+  "apikey": SUPABASE_ANON,
+  "Authorization": `Bearer ${SUPABASE_ANON}`,
+  "Content-Type": "application/json",
+  "Prefer": "return=representation",
+}));
 
 // ─── OFFLINE QUEUE ────────────────────────────────────────────────────────────
 const OFFLINE_DB = "oh_offline";
@@ -4542,49 +4630,12 @@ const auth = {
 };
 
 // Supabase client with auth token support
-const sbAuth = (token) => ({
-  headers: () => ({
-    "apikey": SUPABASE_ANON,
-    "Authorization": `Bearer ${token || SUPABASE_ANON}`,
-    "Content-Type": "application/json",
-    "Prefer": "return=representation",
-  }),
-  from: (table) => ({
-    insert: async (row) => {
-      try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-          method: "POST",
-          headers: { ...sbAuth(token).headers() },
-          body: JSON.stringify(row),
-        });
-        const data = await r.json();
-        return { data: Array.isArray(data) ? data : [data], error: r.ok ? null : data };
-      } catch(e) { return { data: null, error: e }; }
-    },
-    select: async (filter = "") => {
-      try {
-        const qs = filter ? `?${filter}` : "";
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}${qs}`, {
-          headers: { ...sbAuth(token).headers() },
-        });
-        const data = await r.json();
-        return { data: Array.isArray(data) ? data : [], error: r.ok ? null : data };
-      } catch(e) { return { data: null, error: e }; }
-    },
-    update: async (vals, match) => {
-      try {
-        const qs = Object.entries(match).map(([k,v]) => `${k}=eq.${v}`).join("&");
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${qs}`, {
-          method: "PATCH",
-          headers: { ...sbAuth(token).headers() },
-          body: JSON.stringify(vals),
-        });
-        const data = await r.json();
-        return { data, error: r.ok ? null : data };
-      } catch(e) { return { data: null, error: e }; }
-    },
-  }),
-});
+const sbAuth = (token) => makeClient(() => ({
+  "apikey": SUPABASE_ANON,
+  "Authorization": `Bearer ${token || SUPABASE_ANON}`,
+  "Content-Type": "application/json",
+  "Prefer": "return=representation",
+}));
 
 // ─── ONBOARDING WIZARD ────────────────────────────────────────────────────────
 const OnboardingWizard = ({ session, onComplete }) => {
