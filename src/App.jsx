@@ -4559,40 +4559,206 @@ const StockCalibration = () => {
 };
 
 const Settings = ({ session }) => {
-  const meta = session.user.user_metadata;
+  const { db, employers, refreshData } = useData();
+  const meta = session?.user?.user_metadata || {};
+
+  const [tab, setTab] = useState("practice");
+  const [saved, setSaved] = useState(false);
+
+  const [prac, setPrac] = useState(null);
+  const [pracForm, setPracForm] = useState({ name: meta.full_name || "", sanc_number: "", hpcsa_number: "", qualification: "B.Cur OHN", registration_expiry: "" });
+  const [pracSaving, setPracSaving] = useState(false);
+  const [pracLoading, setPracLoading] = useState(true);
+
+  const [empForm, setEmpForm] = useState({ name: "", coida_ref: "", industry_class: "", coida_insurer: "compensation_fund", contact_email: "" });
+  const [empSaving, setEmpSaving] = useState(false);
+  const selEmployer = employers?.[0] || null;
+
+  const [twilioSid, setTwilioSid] = useState(localStorage.getItem("oh_twilio_sid") || "");
+  const [twilioToken, setTwilioToken] = useState(localStorage.getItem("oh_twilio_token") || "");
+  const [twilioFrom, setTwilioFrom] = useState(localStorage.getItem("oh_twilio_from") || "");
+  const [twilioSaved, setTwilioSaved] = useState(false);
+
+  useEffect(() => {
+    if (!db) { setPracLoading(false); return; }
+    db.from("practitioner").select("order=created_at.asc&limit=1").then(res => {
+      if (res.data?.[0]) {
+        const p = res.data[0];
+        setPrac(p);
+        setPracForm({ name: p.name || "", sanc_number: p.sanc_number || "", hpcsa_number: p.hpcsa_number || "", qualification: p.qualification || "", registration_expiry: p.registration_expiry || "" });
+      }
+      setPracLoading(false);
+    }).catch(() => setPracLoading(false));
+  }, [db]);
+
+  useEffect(() => {
+    if (selEmployer) {
+      setEmpForm({ name: selEmployer.name || "", coida_ref: selEmployer.coida_ref || "", industry_class: selEmployer.industry_class || "", coida_insurer: selEmployer.coida_insurer || "compensation_fund", contact_email: selEmployer.contact_email || "" });
+    }
+  }, [selEmployer?.id]);
+
+  const savePractitioner = async () => {
+    setPracSaving(true);
+    if (prac?.id && db) await db.from("practitioner").update(pracForm).eq("id", prac.id);
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setPracSaving(false);
+  };
+
+  const saveEmployer = async () => {
+    if (!selEmployer?.id || !db) return;
+    setEmpSaving(true);
+    await db.from("employer").update(empForm).eq("id", selEmployer.id);
+    await refreshData();
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setEmpSaving(false);
+  };
+
+  const saveTwilio = () => {
+    localStorage.setItem("oh_twilio_sid", twilioSid);
+    localStorage.setItem("oh_twilio_token", twilioToken);
+    localStorage.setItem("oh_twilio_from", twilioFrom);
+    setTwilioSaved(true); setTimeout(() => setTwilioSaved(false), 2000);
+  };
+
+  const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: C.bgCard };
+  const TAB = (v, label) => (
+    <button onClick={() => setTab(v)} style={{ padding: "6px 14px", fontSize: 13, fontWeight: tab === v ? 600 : 400, color: tab === v ? C.teal : C.textSub, background: "none", border: "none", borderBottom: tab === v ? `2px solid ${C.teal}` : "2px solid transparent", cursor: "pointer" }}>{label}</button>
+  );
+  const Field = ({ label, children }) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 500 }}>{label}</div>
+      {children}
+    </div>
+  );
+
   return (
     <div>
-      <div style={{ fontSize: 18, fontWeight: 500, marginBottom: "1.25rem" }}>Settings</div>
-      <SectionTitle>Practice details</SectionTitle>
-      <Card style={{ marginBottom: "1rem" }}>
-        {[
-          { label: "Practitioner name", value: meta.full_name },
-          { label: "Practice / tenant", value: meta.tenant_name },
-          { label: "Practice type", value: meta.tenant_type?.replace(/_/g," ") },
-          { label: "Email", value: session.user.email },
-        ].map(row => (
-          <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
-            <span style={{ color: C.textSub }}>{row.label}</span>
-            <span style={{ fontWeight: 500 }}>{row.value}</span>
-          </div>
-        ))}
-      </Card>
-      <SectionTitle>System</SectionTitle>
-      <Card>
-        {[
-          { label: "App version", value: APP_VERSION },
-          { label: "Data mode", value: USE_MOCK ? "Demo (in-memory)" : "Live (Supabase)" },
-          { label: "VAT rate", value: `${VAT_RATE * 100}%` },
-          { label: "localStorage prefix", value: "oh_" },
-          { label: "Audit log", value: "Append-only, monthly partitioned" },
-          { label: "Document retention", value: "40 years (max statutory)" },
-        ].map(row => (
-          <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
-            <span style={{ color: C.textSub }}>{row.label}</span>
-            <span style={{ fontWeight: 500 }}>{row.value}</span>
-          </div>
-        ))}
-      </Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 18, fontWeight: 500 }}>Settings</div>
+        {saved && <span style={{ fontSize: 12, color: C.teal, fontWeight: 600 }}>&#10003; Saved</span>}
+      </div>
+      <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: "1.25rem" }}>
+        {TAB("practice", "Practitioner")}
+        {TAB("employer", "Employer / clinic")}
+        {TAB("integrations", "Integrations")}
+        {TAB("system", "System")}
+      </div>
+
+      {tab === "practice" && (
+        <div>
+          <Card style={{ marginBottom: "1rem" }}>
+            <SectionTitle>Account</SectionTitle>
+            {[{ label: "Email", value: session?.user?.email }, { label: "User ID", value: (session?.user?.id || "").slice(0,8) + "…" }].map(r => (
+              <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
+                <span style={{ color: C.textSub }}>{r.label}</span><span style={{ fontWeight: 500 }}>{r.value}</span>
+              </div>
+            ))}
+          </Card>
+          <Card>
+            <SectionTitle>Practitioner details</SectionTitle>
+            {pracLoading ? <div style={{ fontSize: 13, color: C.textSub, padding: "1rem 0" }}>Loading…</div> : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
+                  <Field label="Full name *"><input style={inputStyle} value={pracForm.name} onChange={e => setPracForm(f => ({ ...f, name: e.target.value }))} placeholder="Dr. / Sister Name Surname" /></Field>
+                  <Field label="Qualification">
+                    <select style={inputStyle} value={pracForm.qualification} onChange={e => setPracForm(f => ({ ...f, qualification: e.target.value }))}>
+                      {["B.Cur OHN","B.Cur (Hons) OHN","B.Sc Nursing OHN","MBChB (Occupational Medicine)","Diploma Occupational Health","Other"].map(q => <option key={q} value={q}>{q}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="SANC number"><input style={inputStyle} value={pracForm.sanc_number} onChange={e => setPracForm(f => ({ ...f, sanc_number: e.target.value }))} placeholder="SANC registration number" /></Field>
+                  <Field label="HPCSA number"><input style={inputStyle} value={pracForm.hpcsa_number} onChange={e => setPracForm(f => ({ ...f, hpcsa_number: e.target.value }))} placeholder="HPCSA number (if applicable)" /></Field>
+                  <Field label="Registration expiry"><input style={inputStyle} type="date" value={pracForm.registration_expiry} onChange={e => setPracForm(f => ({ ...f, registration_expiry: e.target.value }))} /></Field>
+                </div>
+                {pracForm.registration_expiry && new Date(pracForm.registration_expiry) < new Date(Date.now() + 30*24*60*60*1000) && (
+                  <div style={{ background: C.amberLight, border: `1px solid #E8C56A`, borderRadius: 7, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: C.amber }}>
+                    &#9888; Registration {new Date(pracForm.registration_expiry) < new Date() ? "expired" : "expires within 30 days"} — {pracForm.registration_expiry}
+                  </div>
+                )}
+                <Btn onClick={savePractitioner} disabled={pracSaving || !pracForm.name}>{pracSaving ? "Saving…" : "Save practitioner details"}</Btn>
+              </>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {tab === "employer" && (
+        <Card>
+          <SectionTitle>Primary employer / clinic details</SectionTitle>
+          {!selEmployer ? <div style={{ fontSize: 13, color: C.textSub }}>No employer configured.</div> : (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <Field label="Company name *"><input style={inputStyle} value={empForm.name} onChange={e => setEmpForm(f => ({ ...f, name: e.target.value }))} /></Field>
+                <Field label="COIDA reference"><input style={inputStyle} value={empForm.coida_ref} onChange={e => setEmpForm(f => ({ ...f, coida_ref: e.target.value }))} placeholder="CF-2024-001" /></Field>
+                <Field label="Industry">
+                  <select style={inputStyle} value={empForm.industry_class} onChange={e => setEmpForm(f => ({ ...f, industry_class: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {["Construction","Mining","Manufacturing","Agriculture","Transport","Logistics","Food processing","Chemical","Healthcare","Retail","Other"].map(i => <option key={i} value={i}>{i}</option>)}
+                  </select>
+                </Field>
+                <Field label="COIDA insurer">
+                  <select style={inputStyle} value={empForm.coida_insurer} onChange={e => setEmpForm(f => ({ ...f, coida_insurer: e.target.value }))}>
+                    <option value="compensation_fund">Compensation Fund</option>
+                    <option value="rma">RMA (Rand Mutual Assurance)</option>
+                    <option value="fem">FEM (Federated Employers Mutual)</option>
+                  </select>
+                </Field>
+                <Field label="HR contact email"><input style={inputStyle} type="email" value={empForm.contact_email} onChange={e => setEmpForm(f => ({ ...f, contact_email: e.target.value }))} placeholder="hr@company.co.za" /></Field>
+              </div>
+              <Btn onClick={saveEmployer} disabled={empSaving || !empForm.name}>{empSaving ? "Saving…" : "Save employer details"}</Btn>
+            </>
+          )}
+        </Card>
+      )}
+
+      {tab === "integrations" && (
+        <div>
+          <Card style={{ marginBottom: "1rem" }}>
+            <SectionTitle>WhatsApp / Twilio</SectionTitle>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 12 }}>Required for WhatsApp reminders. Get credentials at twilio.com (free trial available).</div>
+            <Field label="Account SID"><input style={inputStyle} value={twilioSid} onChange={e => setTwilioSid(e.target.value)} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" /></Field>
+            <Field label="Auth token"><input style={inputStyle} type="password" value={twilioToken} onChange={e => setTwilioToken(e.target.value)} placeholder="Auth token" /></Field>
+            <Field label="WhatsApp from number"><input style={inputStyle} value={twilioFrom} onChange={e => setTwilioFrom(e.target.value)} placeholder="+27XXXXXXXXX" /></Field>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Btn onClick={saveTwilio}>Save Twilio credentials</Btn>
+              {twilioSaved && <span style={{ fontSize: 12, color: C.teal, fontWeight: 600 }}>&#10003; Saved locally</span>}
+            </div>
+            <div style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Stored in browser localStorage only — not sent to any server.</div>
+          </Card>
+          <Card>
+            <SectionTitle>Accounting exports</SectionTitle>
+            {[
+              { label: "Xero CSV", desc: "Export invoices as Xero-compatible CSV from Finance screen", status: "Available" },
+              { label: "Sage CSV", desc: "Export invoices as Sage/Pastel CSV from Finance screen", status: "Available" },
+              { label: "Xero API (direct sync)", desc: "Requires Xero app partner approval — apply at developer.xero.com", status: "Pending" },
+            ].map(r => (
+              <div key={r.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 0", borderBottom: `0.5px solid ${C.border}` }}>
+                <div><div style={{ fontSize: 13, fontWeight: 500 }}>{r.label}</div><div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>{r.desc}</div></div>
+                <Badge color={r.status === "Available" ? "teal" : "gray"}>{r.status}</Badge>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
+
+      {tab === "system" && (
+        <Card>
+          <SectionTitle>System information</SectionTitle>
+          {[
+            { label: "App version", value: APP_VERSION },
+            { label: "Data mode", value: USE_MOCK ? "Demo (in-memory)" : "Live (Supabase)" },
+            { label: "VAT rate", value: `${VAT_RATE * 100}%` },
+            { label: "Supabase project", value: USE_MOCK ? "Not connected" : SUPABASE_URL.split(".")[0].replace("https://","") },
+            { label: "Audit log", value: "Append-only, monthly partitioned" },
+            { label: "Document retention", value: "40 years (OHS Act maximum)" },
+            { label: "Data jurisdiction", value: "Supabase eu-west-1 (Ireland)" },
+            { label: "POPIA compliance", value: "Confidentiality boundary at DB role layer" },
+          ].map(row => (
+            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `0.5px solid ${C.border}`, fontSize: 13 }}>
+              <span style={{ color: C.textSub }}>{row.label}</span><span style={{ fontWeight: 500 }}>{row.value}</span>
+            </div>
+          ))}
+        </Card>
+      )}
     </div>
   );
 };
