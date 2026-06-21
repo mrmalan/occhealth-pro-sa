@@ -508,7 +508,7 @@ const Employers = ({ navigate }) => {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500 }}>{e.name}</div>
-              <div style={{ fontSize: 12, color: C.textSub }}>{e.industry_class} · {e.person_count || 0} employees</div>
+              <div style={{ fontSize: 12, color: C.textSub }}>{e.industry_class} · {allPersons.filter(p => p.employer_id === e.id).length} employees</div>
               <div style={{ fontSize: 11, color: C.textTert, marginTop: 2 }}>COIDA: {e.coida_ref}</div>
             </div>
             <Badge color={e.coida_insurer === "fem" ? "amber" : "teal"}>{(e.coida_insurer || "compensation_fund").replace(/_/g, " ").toUpperCase()}</Badge>
