@@ -89,6 +89,103 @@ const C = {
   bgSub: "#F1EFE8",
 };
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const fmtR = (n) => `R ${Number(n||0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// ─── FLOWBOARD CONSTANTS ──────────────────────────────────────────────────────
+// OccHealth encounter types with colours
+const OCC_APPT_TYPES = {
+  "Pre-employment":  { color: "#2563EB", light: "#DBEAFE" },
+  "Periodic":        { color: "#0F6E56", light: "#E1F5EE" },
+  "Exit medical":    { color: "#7C3AED", light: "#EDE9FE" },
+  "IOD follow-up":   { color: "#DC2626", light: "#FEE2E2" },
+  "Surveillance":    { color: "#0891B2", light: "#CFFAFE" },
+  "Drug test":       { color: "#D97706", light: "#FEF3C7" },
+  "Sick/acute":      { color: "#6B7280", light: "#F3F4F6" },
+  "Chronic review":  { color: "#059669", light: "#D1FAE8" },
+};
+
+// Practitioner colours (first 5)
+const OHP_COLORS = [
+  { color: "#0D6B6E", light: "#E8F4F4" },
+  { color: "#7C3AED", light: "#EDE9FE" },
+  { color: "#D97706", light: "#FEF3C7" },
+  { color: "#DC2626", light: "#FEE2E2" },
+  { color: "#059669", light: "#D1FAE8" },
+];
+
+// Mock flowboard data — OccHealth clinic session
+const MOCK_OCC_FLOWBOARD = [
+  { id:"a1",  time:"07:30", hour:7.5,  dur:30,  person:"Sipho Nkosi",        job_title:"Boilermaker",      dept:"Maintenance",  type:"Pre-employment",  prac:"p1", bay:"Bay 1", status:"done",        arrived:true,  invoiced:true,  startedAt:"07:32",endedAt:"07:58", revenue:480, alerts:[] },
+  { id:"a2",  time:"08:00", hour:8,    dur:20,  person:"Fatima Adams",       job_title:"Welder",           dept:"Production",   type:"Drug test",       prac:"p2", bay:"Bay 2", status:"done",        arrived:true,  invoiced:true,  startedAt:"08:02",endedAt:"08:19", revenue:280, alerts:[] },
+  { id:"a3",  time:"08:30", hour:8.5,  dur:45,  person:"Johannes van Wyk",  job_title:"Machine operator", dept:"Production",   type:"Periodic",        prac:"p1", bay:"Bay 1", status:"done",        arrived:true,  invoiced:true,  startedAt:"08:33",endedAt:"09:14", revenue:550, alerts:["Hypertension — on treatment"] },
+  { id:"a4",  time:"09:00", hour:9,    dur:30,  person:"Thandi Dlamini",    job_title:"Safety officer",   dept:"SHE",          type:"Chronic review",  prac:"p1", bay:"Bay 1", status:"in_progress", arrived:true,  invoiced:false, startedAt:"09:05",endedAt:null,   revenue:null, alerts:["Diabetic — check glucose"] },
+  { id:"a5",  time:"09:30", hour:9.5,  dur:60,  person:"Marco Ferreira",    job_title:"Scaffolder",       dept:"Civil",        type:"Surveillance",    prac:"p2", bay:"Bay 2", status:"in_progress", arrived:true,  invoiced:false, startedAt:"09:35",endedAt:null,   revenue:null, alerts:["Audiometry + spirometry required"] },
+  { id:"a6",  time:"10:00", hour:10,   dur:30,  person:"Brenda Mokoena",    job_title:"Cleaner",          dept:"Facilities",   type:"IOD follow-up",   prac:"p1", bay:"Bay 1", status:"waiting",     arrived:true,  invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:["Slip injury 14 days ago"] },
+  { id:"a7",  time:"10:30", hour:10.5, dur:30,  person:"Andile Khumalo",    job_title:"Electrician",      dept:"Engineering",  type:"Pre-employment",  prac:"p2", bay:"Bay 2", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+  { id:"a8",  time:"11:00", hour:11,   dur:20,  person:"Pieter du Plessis", job_title:"Forklift operator",dept:"Logistics",    type:"Drug test",       prac:"p1", bay:"Bay 1", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+  { id:"a9",  time:"11:30", hour:11.5, dur:45,  person:"Nokukhanya Sitole", job_title:"Chemical worker",  dept:"Processing",   type:"Surveillance",    prac:"p2", bay:"Bay 2", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:["Bio-monitoring — urine sample required"] },
+  { id:"a10", time:"12:30", hour:12.5, dur:30,  person:"Rory Campbell",     job_title:"Site manager",     dept:"Management",   type:"Periodic",        prac:"p1", bay:"Bay 1", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+  { id:"a11", time:"13:00", hour:13,   dur:45,  person:"Zanele Moyo",       job_title:"Lab technician",   dept:"Laboratory",   type:"Pre-employment",  prac:"p1", bay:"Bay 1", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+  { id:"a12", time:"13:30", hour:13.5, dur:20,  person:"Deon Swart",        job_title:"Driver",           dept:"Transport",    type:"Drug test",       prac:"p2", bay:"Bay 2", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+  { id:"a13", time:"14:00", hour:14,   dur:30,  person:"Priya Naidoo",      job_title:"Nurse",            dept:"Medical",      type:"Exit medical",    prac:"p1", bay:"Bay 1", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+  { id:"a14", time:"14:30", hour:14.5, dur:30,  person:"Lebo Sithole",      job_title:"Artisan",          dept:"Maintenance",  type:"Periodic",        prac:"p2", bay:"Bay 2", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+  { id:"a15", time:"15:00", hour:15,   dur:30,  person:"Yolanda Steyn",     job_title:"Admin clerk",      dept:"Admin",        type:"Chronic review",  prac:"p1", bay:"Bay 1", status:"scheduled",   arrived:false, invoiced:false, startedAt:null,   endedAt:null,   revenue:null, alerts:[] },
+];
+
+// Monthly register — 20 working days of clinic data
+const generateOccMonthlyRegister = () => {
+  const days = [];
+  const today = new Date(2026, 5, 21);
+  const types = Object.keys(OCC_APPT_TYPES);
+  const seed = (d,p) => ((d*7+p*3)%100)/100;
+  for (let d=0; d<25; d++) {
+    const date = new Date(today); date.setDate(today.getDate()-d);
+    if (date.getDay()===0||date.getDay()===6) continue;
+    const dateStr = date.toISOString().slice(0,10);
+    const pracData = ["p1","p2"].map((pid,pi) => {
+      const s = seed(d,pi);
+      const count = Math.floor(6 + s*6);
+      let revenue = 0;
+      const sessions = [];
+      for (let i=0; i<count; i++) {
+        const type = types[Math.floor(seed(d*10+i,pi)*types.length)];
+        const rate = type==="Pre-employment"?480:type==="Periodic"?550:type==="Drug test"?280:type==="Surveillance"?620:type==="IOD follow-up"?420:400;
+        const dur = type==="Surveillance"?60:type==="Pre-employment"?45:30;
+        revenue += Math.round(rate*(0.85+seed(d+i,pi)*0.3));
+        sessions.push({ type, dur, revenue: Math.round(rate*(0.85+seed(d+i,pi)*0.3)) });
+      }
+      const bookedMins = sessions.reduce((s,a)=>s+a.dur,0);
+      return { pracId: pid, count, revenue, bookedMins, sessions };
+    });
+    const dayRevenue = pracData.reduce((s,p)=>s+p.revenue,0);
+    const dayCount = pracData.reduce((s,p)=>s+p.count,0);
+    days.push({ date:dateStr, label:date.toLocaleDateString("en-ZA",{weekday:"short",day:"numeric",month:"short"}), pracData, dayRevenue, dayCount });
+  }
+  return days.reverse();
+};
+const MOCK_OCC_MONTHLY = generateOccMonthlyRegister();
+
+// Stock / consumables defaults
+const MOCK_OCC_STOCK = [
+  { id:"s1", name:"Drug test kits (urine, 6-panel)", category:"test_kits",    qty:48,  reorder:20, unit:"units",    lot:"DT2026-04", expiry:"2027-03-31", supplier:"Biosite", unit_cost:145 },
+  { id:"s2", name:"Drug test kits (breath alcohol)", category:"test_kits",    qty:12,  reorder:8,  unit:"units",    lot:"BA2025-11", expiry:"2026-12-31", supplier:"Alco-Safe", unit_cost:210 },
+  { id:"s3", name:"Venipuncture needles 21G",        category:"consumables",  qty:200, reorder:50, unit:"units",    lot:null,        expiry:null,         supplier:"Medipack", unit_cost:4.5 },
+  { id:"s4", name:"Vacutainer tubes (EDTA)",         category:"consumables",  qty:80,  reorder:30, unit:"units",    lot:null,        expiry:"2027-06-30", supplier:"Medipack", unit_cost:8 },
+  { id:"s5", name:"Nitrile gloves (M)",              category:"consumables",  qty:5,   reorder:10, unit:"boxes",    lot:null,        expiry:null,         supplier:"Medical Direct", unit_cost:85 },
+  { id:"s6", name:"Urine specimen cups",             category:"consumables",  qty:60,  reorder:20, unit:"units",    lot:null,        expiry:null,         supplier:"Biosite", unit_cost:6 },
+  { id:"s7", name:"BP cuff (adult)",                 category:"equipment",    qty:2,   reorder:1,  unit:"units",    lot:null,        expiry:null,         supplier:"Welch Allyn", unit_cost:1200 },
+  { id:"s8", name:"Pulse oximeter",                  category:"equipment",    qty:2,   reorder:1,  unit:"units",    lot:null,        expiry:null,         supplier:"Nonin", unit_cost:950 },
+];
+
+const MOCK_OCC_CALIBRATION = [
+  { id:"c1", equip:"Audiometer (Maico MA 41)",     serial:"MA41-2024-0033", last:"2025-06-15", next:"2026-06-15", by:"SABS Accredited Lab",    cert_url:null },
+  { id:"c2", equip:"Spirometer (MIR Spirolab)",    serial:"SL-2023-0117",  last:"2026-01-10", next:"2026-07-10", by:"MIR SA",                   cert_url:null },
+  { id:"c3", equip:"Audiometric booth (IAC 400A)", serial:"IAC-2019-011",  last:"2025-11-20", next:"2026-11-20", by:"SABS Accredited Lab",    cert_url:null },
+  { id:"c4", equip:"Breath alcohol (Lion SD400)",  serial:"SD4-2025-0044", last:"2026-03-05", next:"2026-09-05", by:"Lion Laboratories SA",   cert_url:null },
+  { id:"c5", equip:"Weighing scale",               serial:"WS-2022-008",   last:"2025-12-01", next:"2026-12-01", by:"In-house",                 cert_url:null },
+];
+
 // ─── UTILITY COMPONENTS ───────────────────────────────────────────────────────
 const Badge = ({ children, color = "teal" }) => {
   const styles = {
@@ -3706,6 +3803,672 @@ const FinanceBilling = ({ session }) => {
   );
 };
 
+// ══════════════════════════════════════════════════════════════
+// FLOWBOARD
+// ══════════════════════════════════════════════════════════════
+const OccFlowboard = () => {
+  const { practitioners, employers } = useData();
+  const [appts, setAppts] = React.useState(MOCK_OCC_FLOWBOARD);
+  const [view, setView] = React.useState("list"); // list | byprac | timeline | register | monthly
+  const [selAppt, setSelAppt] = React.useState(null);
+  const [kpiFilter, setKpiFilter] = React.useState(null);
+  const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().slice(0,10));
+
+  // Build practitioner display list from DB or mock
+  const pracs = practitioners?.length
+    ? practitioners.slice(0,5).map((p,i) => ({ id: p.id, name: p.name, initials: p.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(), ...OHP_COLORS[i % OHP_COLORS.length] }))
+    : [
+        { id:"p1", name:"OHP Practitioner 1", initials:"P1", ...OHP_COLORS[0] },
+        { id:"p2", name:"OHP Practitioner 2", initials:"P2", ...OHP_COLORS[1] },
+      ];
+
+  const pracName  = (id) => pracs.find(p=>p.id===id)?.name || "—";
+  const pracColor = (id) => pracs.find(p=>p.id===id)?.color || C.teal;
+  const pracLight = (id) => pracs.find(p=>p.id===id)?.light || C.tealLight;
+  const typeColor = (t) => OCC_APPT_TYPES[t]?.color || C.textSub;
+  const typeLight = (t) => OCC_APPT_TYPES[t]?.light || C.bgSub;
+
+  const setStatus = (id, status) => {
+    const now = new Date().toTimeString().slice(0,5);
+    setAppts(prev => prev.map(a => {
+      if (a.id !== id) return a;
+      return {
+        ...a, status,
+        arrived: status !== "scheduled" ? true : a.arrived,
+        startedAt: status === "in_progress" && !a.startedAt ? now : a.startedAt,
+        endedAt:   status === "done" && !a.endedAt ? now : a.endedAt,
+      };
+    }));
+  };
+
+  const KPI_FILTERS = {
+    waiting:    a => a.status === "waiting",
+    inprog:     a => a.status === "in_progress",
+    done:       a => a.status === "done",
+    notarrived: a => !a.arrived && a.status === "scheduled",
+    uninvoiced: a => a.status === "done" && !a.invoiced,
+  };
+
+  const kpiFiltered = kpiFilter ? appts.filter(KPI_FILTERS[kpiFilter]) : appts;
+  const waiting    = appts.filter(a=>a.status==="waiting").length;
+  const inProgress = appts.filter(a=>a.status==="in_progress").length;
+  const done       = appts.filter(a=>a.status==="done").length;
+  const notArrived = appts.filter(a=>!a.arrived && a.status==="scheduled").length;
+  const uninvoiced = appts.filter(a=>a.status==="done" && !a.invoiced).length;
+  const revenue    = appts.filter(a=>a.revenue).reduce((s,a)=>s+(a.revenue||0),0);
+
+  const TAB = (v,label) => (
+    <button onClick={()=>setView(v)} style={{
+      padding:"6px 14px", fontSize:13, fontWeight:view===v?600:400,
+      color:view===v?C.teal:C.textSub, background:"none", border:"none",
+      borderBottom:view===v?`2px solid ${C.teal}`:"2px solid transparent", cursor:"pointer"
+    }}>{label}</button>
+  );
+
+  const KpiCard = ({label,value,filterKey,color}) => (
+    <div onClick={()=>setKpiFilter(kpiFilter===filterKey?null:filterKey)} style={{
+      background:kpiFilter===filterKey?C.tealLight:C.bgSub, borderRadius:8, padding:"0.75rem 1rem",
+      cursor:"pointer", border:`1px solid ${kpiFilter===filterKey?C.tealMid:C.border}`, transition:"all .15s"
+    }}>
+      <div style={{fontSize:20,fontWeight:700,color:color||C.teal}}>{value}</div>
+      <div style={{fontSize:11,color:C.textSub,marginTop:2}}>{label}{kpiFilter===filterKey&&<span style={{color:C.teal}}> ✕</span>}</div>
+    </div>
+  );
+
+  // ── LIST VIEW ──
+  const ListView = () => {
+    const listAppts = kpiFilter ? kpiFiltered : appts;
+    return (
+      <div>
+        {listAppts.map(a => {
+          const tc = typeColor(a.type); const tl = typeLight(a.type);
+          const pc = pracColor(a.prac);
+          return (
+            <div key={a.id} onClick={()=>setSelAppt(a)} style={{
+              display:"flex", alignItems:"center", gap:12, padding:"10px 14px",
+              borderBottom:`1px solid ${C.border}`, cursor:"pointer",
+              background:a.status==="in_progress"?tl:a.status==="waiting"?C.amberLight:"transparent",
+              borderLeft:a.status==="in_progress"?`3px solid ${tc}`:a.status==="waiting"?`3px solid ${C.amber}`:"3px solid transparent",
+            }} onMouseEnter={e=>e.currentTarget.style.background=C.tealLight}
+               onMouseLeave={e=>e.currentTarget.style.background=a.status==="in_progress"?tl:a.status==="waiting"?C.amberLight:"transparent"}>
+              <div style={{width:48,textAlign:"center"}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.textSub}}>{a.time}</div>
+                <div style={{fontSize:10,color:C.textTert}}>{a.dur}m</div>
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:500}}>{a.person}</div>
+                <div style={{fontSize:11,color:C.textSub}}>{a.job_title} · {a.dept}</div>
+                {a.alerts?.length>0 && <div style={{fontSize:10,color:C.amber,marginTop:2}}>⚠ {a.alerts[0]}</div>}
+              </div>
+              <span style={{fontSize:11,fontWeight:600,color:tc,background:tl,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>{a.type}</span>
+              <div style={{width:22,height:22,borderRadius:"50%",background:pc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700,flexShrink:0}}>
+                {pracs.find(p=>p.id===a.prac)?.initials||"?"}
+              </div>
+              <div style={{width:90}}>
+                {a.status==="done" && <span style={{fontSize:11,fontWeight:600,color:C.teal}}>✓ Done</span>}
+                {a.status==="in_progress" && <span style={{fontSize:11,fontWeight:600,color:tc}}>● Active</span>}
+                {a.status==="waiting" && (
+                  <Btn size="sm" onClick={e=>{e.stopPropagation();setStatus(a.id,"in_progress")}}>Start</Btn>
+                )}
+                {a.status==="scheduled" && !a.arrived && (
+                  <Btn size="sm" variant="secondary" onClick={e=>{e.stopPropagation();setStatus(a.id,"waiting")}}>Arrived</Btn>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {listAppts.length === 0 && <div style={{padding:"2rem",textAlign:"center",color:C.textTert}}>No appointments match filter.</div>}
+      </div>
+    );
+  };
+
+  // ── BY PRACTITIONER VIEW ──
+  const ByPracView = () => (
+    <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(pracs.length,3)},1fr)`,gap:12}}>
+      {pracs.map(p => {
+        const pa = appts.filter(a=>a.prac===p.id);
+        return (
+          <div key={p.id} style={{background:p.light,borderRadius:9,padding:"12px 14px",borderLeft:`4px solid ${p.color}`}}>
+            <div style={{fontWeight:700,fontSize:13,color:p.color,marginBottom:10}}>{p.name}</div>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <div style={{fontSize:11,color:C.textSub}}>{pa.filter(a=>a.status==="done").length}/{pa.length} done</div>
+              <div style={{fontSize:11,fontWeight:600,color:p.color}}>{fmtR(pa.reduce((s,a)=>s+(a.revenue||0),0))}</div>
+            </div>
+            {pa.map(a=>(
+              <div key={a.id} onClick={()=>setSelAppt(a)} style={{
+                background:C.bgCard,borderRadius:7,padding:"8px 10px",marginBottom:6,cursor:"pointer",
+                borderLeft:`3px solid ${typeColor(a.type)}`
+              }}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:12,fontWeight:500}}>{a.time} — {a.person}</div>
+                  <span style={{fontSize:10,fontWeight:600,color:typeColor(a.type)}}>{a.type}</span>
+                </div>
+                <div style={{fontSize:11,color:C.textSub,marginTop:2}}>{a.job_title}</div>
+                <div style={{display:"flex",gap:6,marginTop:6}}>
+                  {a.status==="scheduled"&&!a.arrived&&<Btn size="sm" variant="secondary" onClick={e=>{e.stopPropagation();setStatus(a.id,"waiting")}}>Arrived</Btn>}
+                  {a.status==="waiting"&&<Btn size="sm" onClick={e=>{e.stopPropagation();setStatus(a.id,"in_progress")}}>Start</Btn>}
+                  {a.status==="in_progress"&&<Btn size="sm" onClick={e=>{e.stopPropagation();setStatus(a.id,"done")}}>✓ Done</Btn>}
+                  {a.status==="done"&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Complete</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // ── TIMELINE VIEW ──
+  const TimelineView = () => {
+    const COL_W = 180; const ROW_H = 30;
+    const START_H = 7; const END_H = 17;
+    const now = new Date();
+    const nowMins = now.getHours()*60+now.getMinutes();
+    const nowPct = Math.min(100,Math.max(0,((nowMins-START_H*60)/((END_H-START_H)*60))*100));
+    const hours = Array.from({length:END_H-START_H+1},(_,i)=>START_H+i);
+    return (
+      <div style={{overflowX:"auto"}}>
+        <div style={{minWidth:pracs.length*COL_W+80}}>
+          {/* Header */}
+          <div style={{display:"grid",gridTemplateColumns:`80px repeat(${pracs.length},${COL_W}px)`,borderBottom:`1px solid ${C.border}`,background:C.bgSub}}>
+            <div style={{padding:"8px 10px",fontSize:11,color:C.textTert}}>TIME</div>
+            {pracs.map(p=>(
+              <div key={p.id} style={{padding:"8px 10px",fontSize:12,fontWeight:600,color:p.color,background:p.light,borderLeft:`3px solid ${p.color}`}}>
+                {p.name}
+              </div>
+            ))}
+          </div>
+          {/* Body */}
+          <div style={{position:"relative"}}>
+            {hours.map(h=>(
+              <div key={h} style={{display:"grid",gridTemplateColumns:`80px repeat(${pracs.length},${COL_W}px)`,borderBottom:`1px solid ${C.border}30`,minHeight:ROW_H*2}}>
+                <div style={{padding:"6px 10px",fontSize:11,color:C.textTert,borderRight:`1px solid ${C.border}`}}>
+                  {h.toString().padStart(2,"0")}:00
+                </div>
+                {pracs.map(p=>(
+                  <div key={p.id} style={{borderLeft:`1px solid ${C.border}20`,position:"relative",minHeight:ROW_H*2}}>
+                    {appts.filter(a=>a.prac===p.id && Math.floor(a.hour)===h).map(a=>{
+                      const topOffset = ((a.hour-h)*2)*ROW_H;
+                      const height = Math.max(24,(a.dur/30)*ROW_H);
+                      const tc = typeColor(a.type); const tl = typeLight(a.type);
+                      return (
+                        <div key={a.id} onClick={()=>setSelAppt(a)} style={{
+                          position:"absolute",top:topOffset,left:4,right:4,height:height-3,
+                          background:a.status==="done"?tl:a.status==="in_progress"?tc:tl,
+                          border:`1px solid ${tc}`,borderRadius:5,padding:"3px 6px",cursor:"pointer",overflow:"hidden",zIndex:1
+                        }}>
+                          <div style={{fontSize:10,fontWeight:700,color:a.status==="in_progress"?"#fff":tc,lineHeight:1.2}}>{a.person}</div>
+                          {height>30&&<div style={{fontSize:9,color:a.status==="in_progress"?"#ffffffaa":C.textTert}}>{a.type}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {/* Current time line */}
+            <div style={{position:"absolute",top:`${nowPct}%`,left:80,right:0,height:2,background:C.red,zIndex:10,pointerEvents:"none"}}>
+              <div style={{position:"absolute",left:-28,top:-8,fontSize:9,background:C.red,color:"#fff",padding:"2px 4px",borderRadius:3}}>
+                {now.toTimeString().slice(0,5)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── REGISTER VIEW ──
+  const RegisterView = () => {
+    const toMins = t => { if(!t) return null; const [h,m]=t.split(":").map(Number); return h*60+m; };
+    const minsStr = m => m==null?`—`:`${Math.floor(m/60)}h ${m%60}m`;
+    const actualDur = a => { if(!a.startedAt||!a.endedAt) return null; return toMins(a.endedAt)-toMins(a.startedAt); };
+    const DAY_MINS = (17-7)*60;
+
+    const pracStats = pracs.map(p => {
+      const pa = appts.filter(a=>a.prac===p.id);
+      const doneA = pa.filter(a=>a.status==="done");
+      const bookedMins = pa.reduce((s,a)=>s+a.dur,0);
+      const revenue = doneA.reduce((s,a)=>s+(a.revenue||0),0);
+      const utilisation = Math.min(100,Math.round(bookedMins/DAY_MINS*100));
+      return {p,pa,doneA,bookedMins,revenue,utilisation};
+    });
+
+    const exportCSV = () => {
+      const rows = [
+        ["Practitioner","Time","Employee","Job Title","Dept","Type","Bay","Status","Started","Ended","Duration","Actual Dur","Revenue"],
+        ...appts.map(a=>[pracName(a.prac),a.time,a.person,a.job_title,a.dept,a.type,a.bay,a.status,a.startedAt||"—",a.endedAt||"—",`${a.dur}m`,actualDur(a)?`${actualDur(a)}m`:"—",a.revenue?`R${a.revenue}`:"—"])
+      ];
+      const csv = rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
+      const blob = new Blob([csv],{type:"text/csv"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href=url; a.download=`deployment-register-${selectedDate}.csv`; a.click(); URL.revokeObjectURL(url);
+    };
+
+    return (
+      <div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:13,color:C.textSub}}>Deployment register · {new Date(selectedDate+"T00:00:00").toLocaleDateString("en-ZA",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+          <Btn size="sm" variant="secondary" onClick={exportCSV}>⬇ Export CSV</Btn>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${pracs.length},1fr)`,gap:12,marginBottom:16}}>
+          {pracStats.map(({p,pa,doneA,bookedMins,revenue,utilisation})=>(
+            <div key={p.id} style={{background:p.light,borderRadius:9,padding:"14px 16px",borderLeft:`4px solid ${p.color}`}}>
+              <div style={{fontWeight:700,fontSize:13,color:p.color,marginBottom:8}}>{p.name}</div>
+              {[["Appointments",`${doneA.length} done / ${pa.length} booked`],["Booked time",minsStr(bookedMins)],["Day utilisation",`${utilisation}%`],["Revenue",revenue>0?fmtR(revenue):"—"]].map(([l,v])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${p.color}20`,fontSize:12}}>
+                  <span style={{color:C.textSub}}>{l}</span><span style={{fontWeight:600,color:p.color}}>{v}</span>
+                </div>
+              ))}
+              <div style={{marginTop:8}}>
+                <div style={{height:5,background:"#ffffff80",borderRadius:3,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${utilisation}%`,background:p.color,borderRadius:3}}/>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+          {[
+            {l:"Completed",v:`${appts.filter(a=>a.status==="done").length} / ${appts.length}`,c:C.teal},
+            {l:"Revenue confirmed",v:fmtR(appts.reduce((s,a)=>s+(a.revenue||0),0)),c:C.teal},
+            {l:"Not invoiced",v:`${appts.filter(a=>a.status==="done"&&!a.invoiced).length}`,c:uninvoiced>0?C.amber:C.textSub},
+          ].map(k=>(
+            <Card key={k.l} style={{padding:"10px 14px"}}>
+              <div style={{fontSize:20,fontWeight:700,color:k.c}}>{k.v}</div>
+              <div style={{fontSize:11,color:C.textSub,marginTop:2}}>{k.l}</div>
+            </Card>
+          ))}
+        </div>
+        {pracs.map(p=>{
+          const pa = appts.filter(a=>a.prac===p.id);
+          return (
+            <div key={p.id} style={{marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:p.light,borderRadius:"8px 8px 0 0",borderLeft:`4px solid ${p.color}`}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:p.color}}/>
+                <span style={{fontWeight:700,fontSize:13,color:p.color}}>{p.name}</span>
+              </div>
+              <div style={{border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 8px 8px",overflowX:"auto"}}>
+                <div style={{display:"grid",gridTemplateColumns:"60px 160px 130px 80px 70px 60px 60px 70px",padding:"6px 12px",background:C.bgSub,borderBottom:`1px solid ${C.border}`,minWidth:680}}>
+                  {["Time","Employee","Type","Status","Started","Ended","Duration","Revenue"].map((h,i)=>(
+                    <span key={i} style={{fontSize:10,fontWeight:700,color:C.textTert,textTransform:"uppercase",letterSpacing:.3}}>{h}</span>
+                  ))}
+                </div>
+                {pa.map((a,i)=>{
+                  const ad = actualDur(a);
+                  return (
+                    <div key={a.id} onClick={()=>setSelAppt(a)} style={{
+                      display:"grid",gridTemplateColumns:"60px 160px 130px 80px 60px 60px 70px 70px",
+                      padding:"8px 12px",borderBottom:i<pa.length-1?`1px solid ${C.border}`:"none",
+                      alignItems:"center",cursor:"pointer",minWidth:680,
+                    }} onMouseEnter={e=>e.currentTarget.style.background=C.tealLight}
+                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <span style={{fontSize:12,fontWeight:700,color:C.textSub}}>{a.time}</span>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:500}}>{a.person}</div>
+                        <div style={{fontSize:10,color:C.textTert}}>{a.job_title}</div>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:600,color:typeColor(a.type),background:typeLight(a.type),padding:"2px 7px",borderRadius:8}}>{a.type}</span>
+                      <span style={{fontSize:11,fontWeight:600,color:a.status==="done"?C.teal:a.status==="in_progress"?typeColor(a.type):C.textSub}}>
+                        {a.status==="done"?"✓ Done":a.status==="in_progress"?"● Active":a.status==="waiting"?"Waiting":"Sched."}
+                      </span>
+                      <span style={{fontSize:11,color:C.text}}>{a.startedAt||"—"}</span>
+                      <span style={{fontSize:11,color:C.text}}>{a.endedAt||"—"}</span>
+                      <span style={{fontSize:11,fontWeight:600,color:C.text}}>{ad!=null?`${ad}m`:"—"}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:a.revenue?C.teal:C.textTert}}>{a.revenue?fmtR(a.revenue):a.status==="done"?"Uninv.":"—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ── MONTHLY VIEW ──
+  const MonthlyView = () => {
+    const [expanded, setExpanded] = React.useState(null);
+    const data = MOCK_OCC_MONTHLY;
+    const maxRev = Math.max(...data.map(d=>d.dayRevenue));
+    return (
+      <div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+          {[
+            {l:"Sessions (30 days)",v:data.reduce((s,d)=>s+d.dayCount,0).toString(),c:C.teal},
+            {l:"Revenue (30 days)",v:fmtR(data.reduce((s,d)=>s+d.dayRevenue,0)),c:C.teal},
+            {l:"Avg per day",v:fmtR(data.length?data.reduce((s,d)=>s+d.dayRevenue,0)/data.length:0),c:C.teal},
+          ].map(k=>(
+            <Card key={k.l} style={{padding:"10px 14px"}}>
+              <div style={{fontSize:18,fontWeight:700,color:k.c}}>{k.v}</div>
+              <div style={{fontSize:11,color:C.textSub,marginTop:2}}>{k.l}</div>
+            </Card>
+          ))}
+        </div>
+        {/* Revenue bar chart */}
+        <Card style={{padding:"1rem 1.25rem",marginBottom:16}}>
+          <SectionHeader>Daily revenue — last 30 days</SectionHeader>
+          <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80}}>
+            {data.map(d=>(
+              <div key={d.date} title={`${d.label}: ${fmtR(d.dayRevenue)}`} style={{
+                flex:1,background:C.tealMid,borderRadius:"3px 3px 0 0",opacity:.8,
+                height:`${maxRev>0?(d.dayRevenue/maxRev*100):0}%`,minHeight:2,cursor:"pointer"
+              }} onClick={()=>setExpanded(expanded===d.date?null:d.date)}/>
+            ))}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.textTert,marginTop:4}}>
+            <span>{data[0]?.label}</span><span>{data[data.length-1]?.label}</span>
+          </div>
+        </Card>
+        {/* Day list */}
+        {data.map(d=>(
+          <div key={d.date} style={{borderBottom:`1px solid ${C.border}`}}>
+            <div onClick={()=>setExpanded(expanded===d.date?null:d.date)} style={{
+              display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"8px 12px",cursor:"pointer",background:expanded===d.date?C.tealLight:"transparent"
+            }} onMouseEnter={e=>e.currentTarget.style.background=C.tealLight}
+               onMouseLeave={e=>e.currentTarget.style.background=expanded===d.date?C.tealLight:"transparent"}>
+              <span style={{fontSize:13,fontWeight:500}}>{d.label}</span>
+              <div style={{display:"flex",gap:20,alignItems:"center"}}>
+                <span style={{fontSize:12,color:C.textSub}}>{d.dayCount} sessions</span>
+                <span style={{fontSize:13,fontWeight:700,color:C.teal}}>{fmtR(d.dayRevenue)}</span>
+                <span style={{fontSize:11,color:C.textTert}}>{expanded===d.date?"▲":"▼"}</span>
+              </div>
+            </div>
+            {expanded===d.date&&(
+              <div style={{padding:"8px 12px 12px",background:C.bgSub}}>
+                {d.pracData.map(pd=>{
+                  const p = pracs.find(x=>x.id===pd.pracId);
+                  return p?(
+                    <div key={pd.pracId} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.border}20`,fontSize:12}}>
+                      <span style={{color:p.color,fontWeight:500}}>{p.name}</span>
+                      <span style={{color:C.textSub}}>{pd.count} sessions · {fmtR(pd.revenue)}</span>
+                    </div>
+                  ):null;
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // ── APPOINTMENT POPOVER ──
+  const ApptPopover = ({appt,onClose}) => {
+    const tc = typeColor(appt.type); const tl = typeLight(appt.type);
+    const pc = pracColor(appt.prac);
+    return (
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}>
+        <div style={{background:C.bgCard,borderRadius:12,padding:"1.5rem",width:400,maxWidth:"95vw"}} onClick={e=>e.stopPropagation()}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:600}}>{appt.person}</div>
+              <div style={{fontSize:12,color:C.textSub,marginTop:2}}>{appt.job_title} · {appt.dept}</div>
+            </div>
+            <button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:C.textTert}}>✕</button>
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,fontWeight:600,color:tc,background:tl,padding:"3px 10px",borderRadius:20}}>{appt.type}</span>
+            <span style={{fontSize:12,color:C.textSub,background:C.bgSub,padding:"3px 10px",borderRadius:20}}>{appt.bay}</span>
+            <span style={{fontSize:12,color:C.textSub,background:C.bgSub,padding:"3px 10px",borderRadius:20}}>
+              {appt.time} · {appt.dur}min
+            </span>
+          </div>
+          {appt.alerts?.length>0&&(
+            <div style={{background:C.amberLight,border:`1px solid #E8C56A`,borderRadius:8,padding:"8px 12px",marginBottom:12}}>
+              {appt.alerts.map((al,i)=><div key={i} style={{fontSize:12,color:C.amber}}>⚠ {al}</div>)}
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12,marginBottom:14}}>
+            {[["Practitioner",pracName(appt.prac)],["Status",appt.status],["Arrived",appt.arrived?"Yes":"No"],["Started",appt.startedAt||"—"],["Ended",appt.endedAt||"—"],["Revenue",appt.revenue?fmtR(appt.revenue):"—"]].map(([l,v])=>(
+              <div key={l}><div style={{color:C.textTert,fontSize:11}}>{l}</div><div style={{fontWeight:500,marginTop:1}}>{v}</div></div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {appt.status==="scheduled"&&!appt.arrived&&<Btn size="sm" variant="secondary" onClick={()=>{setStatus(appt.id,"waiting");onClose();}}>Mark arrived</Btn>}
+            {appt.status==="waiting"&&<Btn size="sm" onClick={()=>{setStatus(appt.id,"in_progress");onClose();}}>Start session</Btn>}
+            {appt.status==="in_progress"&&<Btn size="sm" onClick={()=>{setStatus(appt.id,"done");onClose();}}>✓ Mark done</Btn>}
+            {appt.status==="done"&&!appt.invoiced&&<Btn size="sm" variant="secondary" onClick={()=>{setAppts(p=>p.map(a=>a.id===appt.id?{...a,invoiced:true}:a));onClose();}}>Mark invoiced</Btn>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+        <div style={{fontSize:18,fontWeight:500}}>Clinic flowboard</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}
+            style={{padding:"5px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:12}}/>
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:"1rem"}}>
+        <KpiCard label="Waiting" value={waiting} filterKey="waiting" color={waiting>0?C.amber:C.textSub}/>
+        <KpiCard label="In progress" value={inProgress} filterKey="inprog" color={inProgress>0?C.teal:C.textSub}/>
+        <KpiCard label="Done" value={done} filterKey="done" color={C.teal}/>
+        <KpiCard label="Not arrived" value={notArrived} filterKey="notarrived" color={notArrived>0?C.amber:C.textSub}/>
+        <KpiCard label="Uninvoiced" value={uninvoiced} filterKey="uninvoiced" color={uninvoiced>0?C.amber:C.textSub}/>
+      </div>
+      {kpiFilter&&<div style={{background:C.tealLight,border:`1px solid ${C.tealMid}`,borderRadius:8,padding:"6px 12px",marginBottom:"0.75rem",fontSize:12,color:C.teal}}>
+        Filtering: {kpiFilter} — {kpiFiltered.length} appointments · <button onClick={()=>setKpiFilter(null)} style={{background:"none",border:"none",color:C.teal,cursor:"pointer",fontWeight:600}}>Clear ✕</button>
+      </div>}
+
+      {/* Revenue summary */}
+      <div style={{fontSize:13,color:C.textSub,marginBottom:"0.75rem"}}>
+        Revenue confirmed today: <strong style={{color:C.teal}}>{fmtR(revenue)}</strong>
+        {uninvoiced>0&&<span style={{color:C.amber,marginLeft:12}}>⚠ {uninvoiced} completed, not yet invoiced</span>}
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,marginBottom:"1rem",overflowX:"auto"}}>
+        {TAB("list","List")}
+        {TAB("byprac","By practitioner")}
+        {TAB("timeline","Timeline")}
+        {TAB("register","Register")}
+        {TAB("monthly","Monthly")}
+      </div>
+
+      <Card style={{padding:0,overflow:"hidden"}}>
+        {view==="list"     && <ListView/>}
+        {view==="byprac"   && <div style={{padding:"1rem"}}><ByPracView/></div>}
+        {view==="timeline" && <TimelineView/>}
+        {view==="register" && <div style={{padding:"1rem"}}><RegisterView/></div>}
+        {view==="monthly"  && <div style={{padding:"1rem"}}><MonthlyView/></div>}
+      </Card>
+      {selAppt&&<ApptPopover appt={selAppt} onClose={()=>setSelAppt(null)}/>}
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
+// STOCK & CALIBRATION
+// ══════════════════════════════════════════════════════════════
+const StockCalibration = () => {
+  const [tab, setTab] = React.useState("stock"); // stock | calibration
+  const [stock, setStock] = React.useState(MOCK_OCC_STOCK);
+  const [calibration, setCalibration] = React.useState(MOCK_OCC_CALIBRATION);
+  const [editStock, setEditStock] = React.useState(null);
+  const [editCal, setEditCal] = React.useState(null);
+
+  const today = new Date();
+  const daysDiff = (dateStr) => dateStr ? Math.ceil((new Date(dateStr)-today)/(1000*60*60*24)) : null;
+
+  const calStatus = (item) => {
+    const d = daysDiff(item.next);
+    if (d === null) return "none";
+    if (d < 0) return "overdue";
+    if (d <= 30) return "due_soon";
+    return "ok";
+  };
+
+  const stockStatus = (item) => {
+    if (item.qty <= 0) return "out";
+    if (item.qty <= item.reorder) return "low";
+    return "ok";
+  };
+
+  const TAB_STYLE = (active) => ({
+    padding:"6px 14px",fontSize:13,fontWeight:active?600:400,
+    color:active?C.teal:C.textSub,background:"none",border:"none",
+    borderBottom:active?`2px solid ${C.teal}`:"2px solid transparent",cursor:"pointer"
+  });
+
+  return (
+    <div>
+      <div style={{fontSize:18,fontWeight:500,marginBottom:"1rem"}}>Stock & calibration</div>
+
+      {/* Summary alerts */}
+      {(() => {
+        const outOfStock = stock.filter(s=>s.qty<=0).length;
+        const lowStock = stock.filter(s=>s.qty>0&&s.qty<=s.reorder).length;
+        const calOverdue = calibration.filter(c=>calStatus(c)==="overdue").length;
+        const calDueSoon = calibration.filter(c=>calStatus(c)==="due_soon").length;
+        if (outOfStock||lowStock||calOverdue||calDueSoon) return (
+          <div style={{background:C.amberLight,border:`1px solid #E8C56A`,borderRadius:8,padding:"10px 14px",marginBottom:"1rem"}}>
+            <div style={{fontSize:13,fontWeight:500,color:C.amber,marginBottom:4}}>⚠ Attention required</div>
+            {outOfStock>0&&<div style={{fontSize:12,color:C.amber}}>{outOfStock} item{outOfStock>1?"s":""} out of stock</div>}
+            {lowStock>0&&<div style={{fontSize:12,color:C.amber}}>{lowStock} item{lowStock>1?"s":""} below reorder level</div>}
+            {calOverdue>0&&<div style={{fontSize:12,color:C.red}}>{calOverdue} piece{calOverdue>1?"s":""} of equipment calibration overdue</div>}
+            {calDueSoon>0&&<div style={{fontSize:12,color:C.amber}}>{calDueSoon} calibration{calDueSoon>1?"s":""} due within 30 days</div>}
+          </div>
+        );
+        return null;
+      })()}
+
+      <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,marginBottom:"1rem"}}>
+        <button style={TAB_STYLE(tab==="stock")} onClick={()=>setTab("stock")}>Consumables & stock</button>
+        <button style={TAB_STYLE(tab==="calibration")} onClick={()=>setTab("calibration")}>Equipment calibration</button>
+      </div>
+
+      {tab==="stock"&&(
+        <div>
+          {["test_kits","consumables","equipment"].map(cat=>{
+            const items = stock.filter(s=>s.category===cat);
+            if (!items.length) return null;
+            const catLabel = cat==="test_kits"?"Drug test kits":cat==="consumables"?"Consumables":"Equipment";
+            return (
+              <div key={cat} style={{marginBottom:16}}>
+                <SectionHeader>{catLabel}</SectionHeader>
+                {items.map(item=>{
+                  const st = stockStatus(item);
+                  const expD = daysDiff(item.expiry);
+                  const expiring = expD!==null && expD<=90;
+                  return (
+                    <Card key={item.id} style={{marginBottom:8,padding:"10px 14px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:500}}>{item.name}</div>
+                          <div style={{fontSize:11,color:C.textSub,marginTop:2}}>
+                            Supplier: {item.supplier}
+                            {item.lot&&<span> · Lot: {item.lot}</span>}
+                            {item.expiry&&<span style={{color:expiring?C.amber:C.textSub}}> · Exp: {item.expiry}{expiring?` (${expD}d)`:""}</span>}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:12}}>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:20,fontWeight:700,color:st==="out"?C.red:st==="low"?C.amber:C.teal}}>{item.qty}</div>
+                            <div style={{fontSize:10,color:C.textTert}}>{item.unit}</div>
+                          </div>
+                          {st!=="ok"&&<Badge color={st==="out"?"red":"amber"}>{st==="out"?"Out of stock":"Low stock"}</Badge>}
+                          <Btn size="sm" variant="secondary" onClick={()=>{setEditStock({...item})}}>Adjust</Btn>
+                        </div>
+                      </div>
+                      <div style={{marginTop:6}}>
+                        <div style={{height:4,background:C.bgSub,borderRadius:2,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${Math.min(100,(item.qty/Math.max(item.qty,item.reorder*3))*100)}%`,background:st==="out"?C.red:st==="low"?C.amber:C.teal,borderRadius:2}}/>
+                        </div>
+                        <div style={{fontSize:10,color:C.textTert,marginTop:2}}>Reorder at {item.reorder} {item.unit}</div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab==="calibration"&&(
+        <div>
+          <div style={{fontSize:12,color:C.textSub,marginBottom:12}}>Equipment calibration is a legal requirement for audiometry, spirometry, and breath alcohol testing. Results obtained with uncalibrated equipment are not legally defensible.</div>
+          {calibration.map(item=>{
+            const st = calStatus(item);
+            const d = daysDiff(item.next);
+            return (
+              <Card key={item.id} style={{marginBottom:8,padding:"12px 14px",borderLeft:`3px solid ${st==="overdue"?C.red:st==="due_soon"?C.amber:C.teal}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:500}}>{item.equip}</div>
+                    <div style={{fontSize:11,color:C.textSub,marginTop:2}}>Serial: {item.serial} · Calibrated by: {item.by}</div>
+                    <div style={{display:"flex",gap:16,marginTop:6,fontSize:12}}>
+                      <span style={{color:C.textSub}}>Last: <strong>{item.last||"—"}</strong></span>
+                      <span style={{color:st==="overdue"?C.red:st==="due_soon"?C.amber:C.teal}}>
+                        Next due: <strong>{item.next}</strong>
+                        {d!==null&&<span> ({d<0?`${Math.abs(d)} days overdue`:`${d} days`})</span>}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    {st!=="ok"&&<Badge color={st==="overdue"?"red":"amber"}>{st==="overdue"?"OVERDUE":"Due soon"}</Badge>}
+                    <Btn size="sm" variant="secondary" onClick={()=>setEditCal({...item})}>Update</Btn>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Stock adjust modal */}
+      {editStock&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={()=>setEditStock(null)}>
+          <div style={{background:C.bgCard,borderRadius:12,padding:"1.5rem",width:360}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:600,marginBottom:12}}>Adjust stock — {editStock.name}</div>
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}>
+              <Btn size="sm" variant="secondary" onClick={()=>setEditStock(s=>({...s,qty:Math.max(0,s.qty-1)}))}>-</Btn>
+              <input type="number" value={editStock.qty} min={0}
+                onChange={e=>setEditStock(s=>({...s,qty:parseInt(e.target.value)||0}))}
+                style={{width:80,textAlign:"center",padding:"6px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:16,fontWeight:700}}/>
+              <Btn size="sm" onClick={()=>setEditStock(s=>({...s,qty:s.qty+1}))}>+</Btn>
+              <span style={{fontSize:12,color:C.textSub}}>{editStock.unit}</span>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn onClick={()=>{setStock(prev=>prev.map(s=>s.id===editStock.id?{...s,qty:editStock.qty}:s));setEditStock(null);}}>Save</Btn>
+              <Btn variant="secondary" onClick={()=>setEditStock(null)}>Cancel</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Calibration update modal */}
+      {editCal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={()=>setEditCal(null)}>
+          <div style={{background:C.bgCard,borderRadius:12,padding:"1.5rem",width:400}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:600,marginBottom:12}}>Update calibration — {editCal.equip}</div>
+            {[["Last calibrated","last","date"],["Next due","next","date"],["Calibrated by","by","text"],["Certificate URL","cert_url","text"]].map(([label,field,type])=>(
+              <div key={field} style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:C.textTert,marginBottom:3}}>{label.toUpperCase()}</div>
+                <input type={type} value={editCal[field]||""} onChange={e=>setEditCal(c=>({...c,[field]:e.target.value}))}
+                  style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:4}}>
+              <Btn onClick={()=>{setCalibration(prev=>prev.map(c=>c.id===editCal.id?{...editCal}:c));setEditCal(null);}}>Save</Btn>
+              <Btn variant="secondary" onClick={()=>setEditCal(null)}>Cancel</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Settings = ({ session }) => {
   const meta = session.user.user_metadata;
   return (
@@ -4226,15 +4989,17 @@ const LoginScreen = ({ onLogin }) => {
 
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV_OHP = [
-  { id: "dashboard", label: "Dashboard", icon: "⊞" },
-  { id: "employers", label: "Employers", icon: "🏭" },
-  { id: "encounters", label: "Encounters", icon: "📋" },
-  { id: "surveillance", label: "Surveillance", icon: "📊" },
-  { id: "fitness", label: "Fitness certs", icon: "✅" },
-  { id: "iod", label: "IOD register", icon: "⚠" },
-  { id: "drug", label: "Drug testing", icon: "🧪" },
-  { id: "finance", label: "Finance", icon: "💳" },
-  { id: "settings", label: "Settings", icon: "⚙" },
+  { id: "dashboard",  label: "Dashboard",    icon: "⊞" },
+  { id: "flowboard",  label: "Flowboard",    icon: "📅" },
+  { id: "employers",  label: "Employers",    icon: "🏭" },
+  { id: "encounters", label: "Encounters",   icon: "📋" },
+  { id: "surveillance",label: "Surveillance",icon: "📊" },
+  { id: "fitness",    label: "Fitness certs",icon: "✅" },
+  { id: "iod",        label: "IOD register", icon: "⚠" },
+  { id: "drug",       label: "Drug testing", icon: "🧪" },
+  { id: "stock",      label: "Stock & cal.", icon: "📦" },
+  { id: "finance",    label: "Finance",      icon: "💳" },
+  { id: "settings",   label: "Settings",     icon: "⚙" },
 ];
 
 const NAV_EMPLOYER = [
@@ -4439,16 +5204,18 @@ export default function App() {
     setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount };
 
   const screens = {
-    dashboard: <Dashboard session={session} navigate={navigate} />,
-    employers: <Employers navigate={navigate} />,
-    encounters: <Encounters navigate={navigate} session={session} />,
+    dashboard:    <Dashboard session={session} navigate={navigate} />,
+    flowboard:    <OccFlowboard />,
+    employers:    <Employers navigate={navigate} />,
+    encounters:   <Encounters navigate={navigate} session={session} />,
     surveillance: <Surveillance />,
-    fitness: <FitnessCerts />,
-    iod: <IODRegister />,
-    drug: <DrugTesting />,
-    portal: <EmployerPortal session={session} />,
-    finance: <FinanceBilling session={session} />,
-    settings: <Settings session={session} />,
+    fitness:      <FitnessCerts />,
+    iod:          <IODRegister />,
+    drug:         <DrugTesting />,
+    stock:        <StockCalibration />,
+    portal:       <EmployerPortal session={session} />,
+    finance:      <FinanceBilling session={session} />,
+    settings:     <Settings session={session} />,
   };
 
   const nav = view === "employer" ? NAV_EMPLOYER : NAV_OHP;
