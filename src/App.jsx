@@ -248,6 +248,18 @@ const Dashboard = ({ session, navigate }) => {
     return days < 30 && days > 0;
   }).length;
 
+  // Calibration alerts — read from localStorage (set by StockCalibration component)
+  const today = new Date();
+  const calOverdue = MOCK_OCC_CALIBRATION.filter(c => c.next && new Date(c.next) < today).length;
+  const calDueSoon = MOCK_OCC_CALIBRATION.filter(c => {
+    if (!c.next) return false;
+    const d = (new Date(c.next) - today) / 86400000;
+    return d >= 0 && d <= 30;
+  }).length;
+  const stockLow = MOCK_OCC_STOCK.filter(s => s.qty > 0 && s.qty <= s.reorder).length;
+  const stockOut = MOCK_OCC_STOCK.filter(s => s.qty <= 0).length;
+  const hasStockAlert = calOverdue > 0 || calDueSoon > 0 || stockLow > 0 || stockOut > 0;
+
   return (
     <div>
       <div style={{ marginBottom: "1.5rem" }}>
@@ -256,11 +268,15 @@ const Dashboard = ({ session, navigate }) => {
         <div style={{ fontSize: 13, color: C.textSub }}>{meta.tenant_name}</div>
       </div>
 
-      {(overdue > 0 || certsExpiring > 0) && (
+      {(overdue > 0 || certsExpiring > 0 || hasStockAlert) && (
         <div style={{ background: C.amberLight, border: `1px solid #E8C56A`, borderRadius: 8, padding: "0.875rem 1rem", marginBottom: "1.25rem" }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: C.amber, marginBottom: 4 }}>⚠ Action required</div>
           {overdue > 0 && <div style={{ fontSize: 13, color: C.amber }}>{overdue} surveillance test{overdue > 1 ? "s" : ""} overdue</div>}
           {certsExpiring > 0 && <div style={{ fontSize: 13, color: C.amber }}>{certsExpiring} fitness certificate{certsExpiring > 1 ? "s" : ""} expiring within 30 days</div>}
+          {calOverdue > 0 && <div style={{ fontSize: 13, color: C.red }}>⚠ {calOverdue} equipment calibration{calOverdue > 1 ? "s" : ""} overdue — results may not be legally defensible</div>}
+          {calDueSoon > 0 && <div style={{ fontSize: 13, color: C.amber }}>{calDueSoon} equipment calibration{calDueSoon > 1 ? "s" : ""} due within 30 days</div>}
+          {stockOut > 0 && <div style={{ fontSize: 13, color: C.amber }}>{stockOut} stock item{stockOut > 1 ? "s" : ""} out of stock</div>}
+          {stockLow > 0 && <div style={{ fontSize: 13, color: C.amber }}>{stockLow} stock item{stockLow > 1 ? "s" : ""} below reorder level</div>}
         </div>
       )}
 
@@ -2941,8 +2957,10 @@ const DrugTesting = () => {
         <Card key={dt.id} style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{person?.first_name} {person?.last_name}</div>
-              <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name} · {dt.test_reason.replace(/_/g," ")} · {dt.specimen_type}</div>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                {person ? `${person.first_name} ${person.last_name}` : <span style={{ color: C.textTert }}>Employee not found</span>}
+              </div>
+              <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name || "—"} · {dt.test_reason.replace(/_/g," ")} · {dt.specimen_type}</div>
               <div style={{ fontSize: 11, color: C.textTert }}>{new Date(dt.tested_at).toLocaleDateString("en-ZA")}</div>
               <div style={{ fontSize: 11, color: C.textTert, marginTop: 2 }}>Substances: {dt.substances_tested.join(", ")}</div>
             </div>
