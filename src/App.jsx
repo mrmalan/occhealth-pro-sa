@@ -4149,7 +4149,7 @@ const OccFlowboard = () => {
         </div>
         {/* Revenue bar chart */}
         <Card style={{padding:"1rem 1.25rem",marginBottom:16}}>
-          <SectionHeader>Daily revenue — last 30 days</SectionHeader>
+          <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: C.textTert, fontWeight: 500, marginBottom: 12, paddingBottom: 8, borderBottom: `0.5px solid ${C.border}` }}>Daily revenue — last 30 days</div>
           <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80}}>
             {data.map(d=>(
               <div key={d.date} title={`${d.label}: ${fmtR(d.dayRevenue)}`} style={{
@@ -4355,7 +4355,7 @@ const StockCalibration = () => {
             const catLabel = cat==="test_kits"?"Drug test kits":cat==="consumables"?"Consumables":"Equipment";
             return (
               <div key={cat} style={{marginBottom:16}}>
-                <SectionHeader>{catLabel}</SectionHeader>
+                <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: C.textTert, fontWeight: 500, marginBottom: 12, paddingBottom: 8, borderBottom: `0.5px solid ${C.border}` }}>{catLabel}</div>
                 {items.map(item=>{
                   const st = stockStatus(item);
                   const expD = daysDiff(item.expiry);
