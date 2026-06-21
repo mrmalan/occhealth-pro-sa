@@ -541,7 +541,8 @@ const sb = {
     select: async (filter = "") => {
       if (USE_MOCK) return { data: [], error: null };
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}&order=created_at.desc`, { headers: sb.headers() });
+        const qs = filter ? `?${filter}` : "";
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}${qs}`, { headers: sb.headers() });
         const data = await r.json();
         return { data: Array.isArray(data) ? data : [], error: r.ok ? null : data };
       } catch(e) { return { data: null, error: e }; }
@@ -1758,7 +1759,7 @@ const Surveillance = () => {
       const [profRes, enrolRes, evtRes] = await Promise.all([
         db.from("hazard_profile").select("*"),
         db.from("person_hazard").select("*"),
-        db.from("surveillance_event").select("*").order("scheduled_date", { ascending: true }),
+        db.from("surveillance_event").select("order=scheduled_date.asc"),
       ]);
       if (profRes.data?.length) setProfiles(profRes.data);
       if (enrolRes.data) setEnrolments(enrolRes.data);
@@ -2200,10 +2201,10 @@ const IODRegister = () => {
   // Load live IOD data + COIDA claims from Supabase on mount
   useEffect(() => {
     if (!db || USE_MOCK) return;
-    db.from("iod_incident").select("*").order("incident_at", { ascending: false }).limit(200).then(res => {
+    db.from("iod_incident").select("order=incident_at.desc&limit=200").then(res => {
       if (res.data?.length) setLiveIODs(res.data);
     }).catch(() => {});
-    db.from("coida_claim").select("*").order("created_at", { ascending: false }).limit(500).then(res => {
+    db.from("coida_claim").select("order=created_at.desc&limit=500").then(res => {
       if (res.data?.length) {
         const map = {};
         res.data.forEach(c => { map[c.iod_incident_id] = c; });
@@ -2674,7 +2675,7 @@ const DrugTesting = () => {
   // Load live drug test data from Supabase on mount
   useEffect(() => {
     if (!db || USE_MOCK) return;
-    db.from("drug_test").select("*").order("tested_at", { ascending: false }).limit(200).then(res => {
+    db.from("drug_test").select("order=tested_at.desc&limit=200").then(res => {
       if (res.data?.length) setLiveTests(res.data);
     }).catch(() => {});
   }, [db]);
@@ -3346,7 +3347,7 @@ const FinanceBilling = ({ session }) => {
       ]);
       return;
     }
-    db.from("invoice").select("*").order("issue_date", { ascending: false }).limit(200).then(res => {
+    db.from("invoice").select("order=issue_date.desc&limit=200").then(res => {
       if (res.data?.length) setInvoices(res.data);
     }).catch(() => {});
   }, [db, employers[0]?.id]);
@@ -4562,7 +4563,8 @@ const sbAuth = (token) => ({
     },
     select: async (filter = "") => {
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}&order=created_at.desc`, {
+        const qs = filter ? `?${filter}` : "";
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}${qs}`, {
           headers: { ...sbAuth(token).headers() },
         });
         const data = await r.json();
@@ -5114,7 +5116,7 @@ export default function App() {
         db.from("employer").select(""),
         db.from("person").select(""),
         db.from("clinical_encounter").select("limit=100"),
-        db.from("fitness_certificate").select("*").eq("superseded", false).limit(100),
+        db.from("fitness_certificate").select("superseded=eq.false&limit=100"),
       ]);
       if (empRes.data) setLiveEmployers(empRes.data);
       if (persRes.data) setLivePersons(persRes.data);
