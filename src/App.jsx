@@ -2368,33 +2368,203 @@ const Surveillance = () => {
 
 const FitnessCerts = () => {
   const { fitnessCerts, persons, employers } = useData();
-  return (
-  <div>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-      <div style={{ fontSize: 18, fontWeight: 500 }}>Fitness certificates</div>
-      <Btn size="sm">+ Issue certificate</Btn>
-    </div>
-    {fitnessCerts.map(fc => {
-      const person = persons.find(p => p.id === fc.person_id);
-      const employer = employers.find(e => e.id === person?.employer_id);
-      const daysLeft = Math.round((new Date(fc.valid_until) - new Date()) / 86400000);
-      return (
-        <Card key={fc.id} style={{ marginBottom: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{person?.first_name} {person?.last_name}</div>
-              <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name} · {fc.role_category}</div>
-              <div style={{ fontSize: 11, color: C.textTert }}>Valid: {new Date(fc.valid_from).toLocaleDateString("en-ZA")} – {new Date(fc.valid_until).toLocaleDateString("en-ZA")}</div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-              <Badge color={fc.fitness_status === "fit" ? "teal" : "amber"}>{fc.fitness_status.replace(/_/g," ")}</Badge>
-              <span style={{ fontSize: 11, color: daysLeft < 30 ? C.amber : C.textTert }}>{daysLeft}d remaining</span>
+  const [printing, setPrinting] = useState(null); // fc.id being printed
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const printCert = async (fc) => {
+    const person = persons.find(p => p.id === fc.person_id);
+    const employer = employers.find(e => e.id === person?.employer_id);
+    setPrinting(fc.id);
+    try {
+      const payload = {
+        cert_id: fc.id,
+        practice_name: "OccHealth Pro SA",
+        person_name: person ? `${person.first_name} ${person.last_name}` : "",
+        employee_number: person?.employee_number || "",
+        employer_name: employer?.name || "",
+        role_category: fc.role_category || person?.job_title || "",
+        date_of_birth: person?.date_of_birth || "",
+        site: person?.site || employer?.name || "",
+        fitness_status: fc.fitness_status,
+        restrictions: fc.restrictions || [],
+        valid_from: fc.valid_from,
+        valid_until: fc.valid_until,
+        validity_period: (() => {
+          if (!fc.valid_from || !fc.valid_until) return "12 months";
+          const months = Math.round((new Date(fc.valid_until) - new Date(fc.valid_from)) / (1000*60*60*24*30));
+          return `${months} months`;
+        })(),
+        notes: fc.notes || "",
+        practitioner_name: "",
+        qualification: "",
+        sanc_number: "",
+        signed_at: fc.valid_from,
+      };
+      const res = await fetch("/.netlify/functions/fitness-cert", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch(e) { alert("Failed to generate certificate: " + e.message); }
+    setPrinting(null);
+  };
+
+  const filtered = fitnessCerts.filter(fc => {
+    const person = persons.find(p => p.id === fc.person_id);
+    const name = person ? `${person.first_name} ${person.last_name}`.toLowerCase() : "";
+    const matchSearch = !search || name.includes(search.toLowerCase()) || (fc.role_category || "").toLowerCase().includes(search.toLowerCase());
+    const daysLeft = Math.round((new Date(fc.valid_until) - new Date()) / 86400000);
+    const matchStatus = statusFilter === "all" || (statusFilter === "current" && daysLeft > 0) || (statusFilter === "expired" && daysLeft <= 0) || (statusFilter === "expiring" && daysLeft > 0 && daysLeft <= 30);
+    return matchSearch && matchStatus;
+  });
+
+  // Summary counts
+  const total = fitnessCerts.length;
+  const current = fitnessCerts.filter(fc => new Date(fc.valid_until) > new Date()).length;
+  const expired = fitnessCerts.filter(fc => new Date(fc.valid_until) <= new Date()).length;
+  const expiring30 = fitnessCerts.filter(fc => {
+    const d = Math.round((new Date(fc.valid_until) - new Date()) / 86400000);
+    return d > 0 && d <= 30;
+  }).length;
+
+  // ── Ghost state ──
+  if (total === 0) {
+    return (
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 500, marginBottom: "1.25rem" }}>Fitness certificates</div>
+        <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
+          {/* Ghost illustration */}
+          <div style={{ marginBottom: "1.5rem" }}>
+            <div style={{ display: "inline-flex", flexDirection: "column", gap: 8, opacity: 0.18 }}>
+              {[1,2,3].map(i => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.bgSub, borderRadius: 8, padding: "10px 14px", width: 340, gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ height: 12, background: C.border, borderRadius: 4, width: `${55+i*15}%`, marginBottom: 6 }} />
+                    <div style={{ height: 10, background: C.border, borderRadius: 4, width: "40%" }} />
+                  </div>
+                  <div style={{ width: 48, height: 20, background: C.teal, borderRadius: 10, opacity: 0.4 }} />
+                </div>
+              ))}
             </div>
           </div>
-        </Card>
-      );
-    })}
-  </div>
+          <div style={{ fontSize: 16, fontWeight: 500, color: C.text, marginBottom: 8 }}>No fitness certificates yet</div>
+          <div style={{ fontSize: 13, color: C.textSub, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>
+            Fitness certificates are generated automatically when you sign a clinical encounter that includes a fitness assessment. Complete an encounter with a pre-employment, periodic, or exit medical to issue the first certificate.
+          </div>
+          <div style={{ marginTop: "1.5rem", display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+            <div style={{ background: C.bgSub, borderRadius: 8, padding: "10px 16px", fontSize: 12, color: C.textSub }}>
+              <div style={{ fontWeight: 600, color: C.text, marginBottom: 2 }}>How to issue</div>
+              Encounters → New encounter → Sign → Certificate auto-generated
+            </div>
+            <div style={{ background: C.bgSub, borderRadius: 8, padding: "10px 16px", fontSize: 12, color: C.textSub }}>
+              <div style={{ fontWeight: 600, color: C.text, marginBottom: 2 }}>Valid for</div>
+              Typically 12 months (adjustable per encounter)
+            </div>
+            <div style={{ background: C.bgSub, borderRadius: 8, padding: "10px 16px", fontSize: 12, color: C.textSub }}>
+              <div style={{ fontWeight: 600, color: C.text, marginBottom: 2 }}>PDF output</div>
+              OHS Act compliant — printable and shareable
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Register view ──
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <div style={{ fontSize: 18, fontWeight: 500 }}>Fitness certificates</div>
+      </div>
+
+      {/* KPI summary */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: "1rem" }}>
+        {[
+          { label: "Total", value: total, color: C.teal, filter: "all" },
+          { label: "Current", value: current, color: C.teal, filter: "current" },
+          { label: "Expiring 30d", value: expiring30, color: expiring30 > 0 ? C.amber : C.textSub, filter: "expiring" },
+          { label: "Expired", value: expired, color: expired > 0 ? C.red : C.textSub, filter: "expired" },
+        ].map(k => (
+          <div key={k.label} onClick={() => setStatusFilter(statusFilter === k.filter ? "all" : k.filter)}
+            style={{ background: statusFilter === k.filter ? C.tealLight : C.bgSub, borderRadius: 8, padding: "10px 12px", cursor: "pointer", border: `1px solid ${statusFilter === k.filter ? C.tealMid : C.border}`, transition: "all .15s" }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: k.color }}>{k.value}</div>
+            <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>{k.label}{statusFilter === k.filter ? " ✕" : ""}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div style={{ position: "relative", marginBottom: "1rem" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by employee or role…"
+          style={{ width: "100%", padding: "8px 10px 8px 32px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box", background: C.bgCard }} />
+        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: C.textTert }}>🔍</span>
+        {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", fontSize: 14, cursor: "pointer", color: C.textTert }}>✕</button>}
+      </div>
+
+      {/* Register table header */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 100px 90px 80px 90px", gap: 8, padding: "6px 14px", background: C.bgSub, borderRadius: "7px 7px 0 0", borderBottom: `1px solid ${C.border}` }}>
+        {["Employee", "Employer / role", "Status", "Valid from", "Valid until", ""].map((h, i) => (
+          <div key={i} style={{ fontSize: 10, fontWeight: 700, color: C.textTert, textTransform: "uppercase", letterSpacing: 0.4 }}>{h}</div>
+        ))}
+      </div>
+
+      {filtered.length === 0 && (
+        <div style={{ padding: "2rem", textAlign: "center", color: C.textTert, fontSize: 13, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 7px 7px" }}>
+          No certificates match current filters.
+        </div>
+      )}
+
+      {filtered.map((fc, i) => {
+        const person = persons.find(p => p.id === fc.person_id);
+        const employer = employers.find(e => e.id === person?.employer_id);
+        const daysLeft = Math.round((new Date(fc.valid_until) - new Date()) / 86400000);
+        const isExpired = daysLeft <= 0;
+        const isExpiring = daysLeft > 0 && daysLeft <= 30;
+        return (
+          <div key={fc.id} style={{
+            display: "grid", gridTemplateColumns: "1fr 140px 100px 90px 80px 90px", gap: 8,
+            padding: "10px 14px", alignItems: "center",
+            background: isExpired ? "#FFF8F8" : isExpiring ? "#FFFBF0" : C.bgCard,
+            borderBottom: i < filtered.length - 1 ? `1px solid ${C.border}` : "none",
+            borderLeft: `3px solid ${isExpired ? C.red : isExpiring ? C.amber : C.teal}`,
+            borderRight: `1px solid ${C.border}`,
+            borderRadius: i === filtered.length - 1 ? "0 0 7px 7px" : 0,
+          }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{person?.first_name} {person?.last_name}</div>
+              {person?.employee_number && <div style={{ fontSize: 11, color: C.textTert }}>Emp #{person.employee_number}</div>}
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: C.textSub }}>{employer?.name || "—"}</div>
+              {fc.role_category && <div style={{ fontSize: 11, color: C.textTert }}>{fc.role_category}</div>}
+            </div>
+            <div>
+              <Badge color={fc.fitness_status === "fit" ? "teal" : fc.fitness_status === "fit_with_restrictions" ? "amber" : "red"}>
+                {fc.fitness_status?.replace(/_/g," ")}
+              </Badge>
+            </div>
+            <div style={{ fontSize: 12, color: C.textSub }}>{fc.valid_from ? new Date(fc.valid_from).toLocaleDateString("en-ZA") : "—"}</div>
+            <div>
+              <div style={{ fontSize: 12, color: isExpired ? C.red : isExpiring ? C.amber : C.textSub }}>
+                {fc.valid_until ? new Date(fc.valid_until).toLocaleDateString("en-ZA") : "—"}
+              </div>
+              <div style={{ fontSize: 10, color: isExpired ? C.red : isExpiring ? C.amber : C.textTert }}>
+                {isExpired ? `${Math.abs(daysLeft)}d ago` : `${daysLeft}d left`}
+              </div>
+            </div>
+            <div>
+              <Btn size="sm" variant="ghost" onClick={() => printCert(fc)} disabled={printing === fc.id}>
+                {printing === fc.id ? "…" : "🖨 Print"}
+              </Btn>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 };
 
