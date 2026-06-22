@@ -5595,6 +5595,7 @@ const LoginScreen = ({ onLogin }) => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [sancNumber, setSancNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -5631,6 +5632,29 @@ const LoginScreen = ({ onLogin }) => {
     setLoading(false);
   };
 
+  const handleCPDSignup = async () => {
+    if (!email || !password || !fullName) { setError("Name, email and password are required"); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
+    if (password !== confirmPassword) { setError("Passwords do not match"); return; }
+    setLoading(true); setError("");
+    const data = await auth.signUp(email, password, {
+      full_name: fullName,
+      sanc_number: sancNumber,
+      role: "ohp",
+      account_type: "cpd_free",
+      onboarding_complete: true,
+    });
+    if (data.error) { setError(data.error_description || data.message || "Signup failed"); setLoading(false); return; }
+    const signInData = await auth.signIn(email, password);
+    if (signInData.access_token) {
+      const user = await auth.getUser(signInData.access_token);
+      onLogin({ ...signInData, user });
+    } else {
+      setError("Account created. Check your email to confirm, then sign in.");
+    }
+    setLoading(false);
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: C.tealDark, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", boxSizing: "border-box" }}>
       <div style={{ background: "#fff", borderRadius: 14, padding: "1.5rem", width: "100%", maxWidth: 380, boxSizing: "border-box" }}>
@@ -5647,18 +5671,33 @@ const LoginScreen = ({ onLogin }) => {
 
         {!USE_MOCK && (
           <div style={{ display: "flex", background: C.bgSub, borderRadius: 8, padding: 3, marginBottom: "1.25rem" }}>
-            {["login","signup"].map(m => (
-              <button key={m} onClick={() => { setMode(m); setError(""); setConfirmPassword(""); }} style={{ flex: 1, padding: "6px", borderRadius: 6, border: "none", background: mode === m ? "#fff" : "transparent", color: mode === m ? C.text : C.textSub, fontSize: 13, fontWeight: mode === m ? 500 : 400, cursor: "pointer", boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
-                {m === "login" ? "Sign in" : "Create account"}
+            {[
+              { id: "login", label: "Sign in" },
+              { id: "signup", label: "Pro account" },
+              { id: "cpd_signup", label: "Free CPD log" },
+            ].map(m => (
+              <button key={m.id} onClick={() => { setMode(m.id); setError(""); setConfirmPassword(""); setSancNumber(""); }} style={{ flex: 1, padding: "6px 4px", borderRadius: 6, border: "none", background: mode === m.id ? "#fff" : "transparent", color: mode === m.id ? C.text : C.textSub, fontSize: 12, fontWeight: mode === m.id ? 500 : 400, cursor: "pointer", boxShadow: mode === m.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+                {m.label}
               </button>
             ))}
           </div>
         )}
+        {mode === "cpd_signup" && !USE_MOCK && (
+          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "8px 12px", marginBottom: "1rem", fontSize: 12, color: "#15803d" }}>
+            <strong>Free forever</strong> — SANC CPD log, 15-point tracker, PDF export. No credit card required.
+          </div>
+        )}
 
-        {mode === "signup" && !USE_MOCK && (
+        {(mode === "signup" || mode === "cpd_signup") && !USE_MOCK && (
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>Full name</div>
             <input style={inputStyle} value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Sr. Jane Smith" />
+          </div>
+        )}
+        {mode === "cpd_signup" && !USE_MOCK && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>SANC registration number <span style={{ color: C.textTert }}>(optional)</span></div>
+            <input style={inputStyle} value={sancNumber} onChange={e => setSancNumber(e.target.value)} placeholder="e.g. 12345678" />
           </div>
         )}
 
@@ -5676,20 +5715,22 @@ const LoginScreen = ({ onLogin }) => {
           onKeyDown={e => e.key === "Enter" && mode === "login" && handleLogin()}
         />
 
-        {mode === "signup" && !USE_MOCK && (
+        {(mode === "signup" || mode === "cpd_signup") && !USE_MOCK && (
           <PasswordInput
             value={confirmPassword}
             onChange={e => setConfirmPassword(e.target.value)}
             placeholder="••••••••"
             label="Confirm password"
-            onKeyDown={e => e.key === "Enter" && handleSignup()}
+            onKeyDown={e => e.key === "Enter" && (mode === "signup" ? handleSignup() : handleCPDSignup())}
           />
         )}
 
         {error && <div style={{ fontSize: 12, color: C.red, marginBottom: 10, background: "#FEF2F2", padding: "8px 10px", borderRadius: 6 }}>{error}</div>}
 
-        <Btn onClick={mode === "login" ? handleLogin : handleSignup} disabled={loading} style={{ width: "100%", justifyContent: "center" }}>
-          {loading ? (mode === "login" ? "Signing in..." : "Creating account...") : (mode === "login" ? "Sign in" : "Create account")}
+        <Btn onClick={mode === "login" ? handleLogin : mode === "signup" ? handleSignup : handleCPDSignup} disabled={loading} style={{ width: "100%", justifyContent: "center" }}>
+          {loading
+            ? (mode === "login" ? "Signing in..." : "Creating account...")
+            : (mode === "login" ? "Sign in" : mode === "signup" ? "Create Pro account" : "Create free CPD log")}
         </Btn>
 
         <div style={{ textAlign: "center", marginTop: "1rem", fontSize: 11, color: C.textTert }}>
@@ -5720,7 +5761,7 @@ const loadCPD = () => {
 };
 const saveCPD = (items) => localStorage.setItem(CPD_STORAGE_KEY, JSON.stringify(items));
 
-const CPDTracker = ({ session }) => {
+const CPDTracker = ({ session, isCPDFree, onUpgrade }) => {
   const [activities, setActivities] = React.useState(loadCPD);
   const [showAdd, setShowAdd] = React.useState(false);
   const [form, setForm] = React.useState({ date: "", title: "", provider: "", category: CPD_CATEGORIES[0], points: "", notes: "" });
@@ -5773,6 +5814,18 @@ const CPDTracker = ({ session }) => {
 
   return (
     <div>
+      {/* Upgrade banner — CPD-free accounts only */}
+      {isCPDFree && (
+        <div style={{ background: "linear-gradient(135deg, #0D6B6E, #0F6E56)", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 3 }}>You're on the free CPD plan</div>
+            <div style={{ color: "#9FE1CB", fontSize: 12 }}>Upgrade to unlock IOD register, fitness certs, surveillance, employer portal, invoicing and more.</div>
+          </div>
+          <button onClick={onUpgrade} style={{ flexShrink: 0, padding: "9px 18px", borderRadius: 8, border: "none", background: "#5DCAA5", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            ⚡ Upgrade to Pro
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
         <div>
@@ -5941,7 +5994,7 @@ const NAV_EMPLOYER = [
 ];
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-const Sidebar = ({ screen, setScreen, session, onLogout, view }) => {
+const Sidebar = ({ screen, setScreen, session, onLogout, view, isCPDFree, onUpgrade }) => {
   const nav = view === "employer" ? NAV_EMPLOYER : NAV_OHP;
   return (
     <div style={{ width: 200, minHeight: "100vh", background: C.tealDark, display: "flex", flexDirection: "column", flexShrink: 0 }}>
@@ -5962,6 +6015,11 @@ const Sidebar = ({ screen, setScreen, session, onLogout, view }) => {
       <div style={{ padding: "1rem", borderTop: "0.5px solid rgba(255,255,255,0.1)" }}>
         <div style={{ fontSize: 11, color: "#5DCAA5", marginBottom: 4 }}>{session.user.user_metadata.full_name}</div>
         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{session.user.email}</div>
+        {isCPDFree && (
+          <button onClick={onUpgrade} style={{ width: "100%", padding: "7px 10px", background: "#5DCAA5", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "center", marginBottom: 6 }}>
+            ⚡ Upgrade to Pro
+          </button>
+        )}
         <Btn variant="ghost" size="sm" onClick={onLogout} style={{ color: "#9FE1CB", borderColor: "rgba(255,255,255,0.2)", fontSize: 11 }}>Sign out</Btn>
       </div>
     </div>
@@ -6206,7 +6264,7 @@ export default function App() {
               {screen === "portal"       && <EmployerPortal session={session} />}
               {screen === "finance"      && <FinanceBilling session={session} />}
               {screen === "settings"     && <Settings session={session} />}
-              {screen === "cpd"          && <CPDTracker session={session} />}
+              {screen === "cpd"          && <CPDTracker session={session} isCPDFree={isCPDFree} onUpgrade={handleUpgradeToPro} />}
             </div>
           </div>
         </div>
