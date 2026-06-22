@@ -2647,7 +2647,7 @@ const IODRegister = () => {
 
     let saved = { ...record, id: crypto.randomUUID() };
     if (!USE_MOCK && db) {
-      const { data, error } = await db.from("iod_incident").insert(record);
+      const { data, error } = await db.from("iod_incident").insert(record).select();
       if (!error && data?.[0]) saved = data[0];
     }
     setLiveIODs(prev => [saved, ...(prev || MOCK_IOD)]);
@@ -3121,7 +3121,7 @@ const DrugTesting = () => {
 
     let saved = { ...record, id: crypto.randomUUID() };
     if (!USE_MOCK && db) {
-      const { data, error } = await db.from("drug_test").insert(record);
+      const { data, error } = await db.from("drug_test").insert(record).select();
       if (!error && data?.[0]) saved = data[0];
     }
     setLiveTests(prev => [saved, ...(prev || MOCK_DRUG_TESTS)]);
