@@ -6645,8 +6645,9 @@ const CPDTracker = ({ session, isCPDFree, onUpgrade }) => {
             <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 3 }}>You're on the free CPD plan</div>
             <div style={{ color: "#9FE1CB", fontSize: 12 }}>Upgrade to unlock IOD register, fitness certs, surveillance, employer portal, invoicing and more.</div>
           </div>
-          <button onClick={onUpgrade} style={{ flexShrink: 0, padding: "9px 18px", borderRadius: 8, border: "none", background: "#5DCAA5", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-            ⚡ Upgrade to Pro
+          <button onClick={() => onUpgrade("ohp")} disabled={upgrading}
+            style={{ flexShrink: 0, padding: "9px 18px", borderRadius: 8, border: "none", background: upgrading ? "#9FE1CB" : "#5DCAA5", color: "#fff", fontSize: 13, fontWeight: 700, cursor: upgrading ? "wait" : "pointer", whiteSpace: "nowrap" }}>
+            {upgrading ? "Redirecting..." : "⚡ Upgrade to Pro"}
           </button>
         </div>
       )}
@@ -6969,7 +6970,7 @@ const Sidebar = ({ screen, setScreen, session, onLogout, view, isCPDFree, onUpgr
         <div style={{ fontSize: 11, color: "#5DCAA5", marginBottom: 4 }}>{session.user.user_metadata.full_name}</div>
         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{session.user.email}</div>
         {isCPDFree && (
-          <button onClick={onUpgrade} style={{ width: "100%", padding: "7px 10px", background: "#5DCAA5", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "center", marginBottom: 6 }}>
+          <button onClick={() => onUpgrade("ohp")} style={{ width: "100%", padding: "7px 10px", background: "#5DCAA5", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "center", marginBottom: 6 }}>
             ⚡ Upgrade to Pro
           </button>
         )}
@@ -7171,9 +7172,74 @@ export default function App() {
 
   const refreshData = () => { if (!USE_MOCK) loadAllData(); };
 
+  // CPD-free mode: account_type === "cpd_free" → restricted sidebar, upgrade banner
+  const isCPDFree = !USE_MOCK && session?.user?.user_metadata?.account_type === "cpd_free";
+
+  // Upgrade to Pro via PayFast subscription checkout
+  const [upgrading, setUpgrading] = React.useState(false);
+  const [upgradeError, setUpgradeError] = React.useState("");
+
+  const handleUpgradeToPro = async (tier = "ohp") => {
+    setUpgrading(true);
+    setUpgradeError("");
+    try {
+      const meta = session?.user?.user_metadata || {};
+      const res = await fetch("/.netlify/functions/payfast-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: session?.user?.id,
+          email: session?.user?.email,
+          name: meta.full_name || "",
+          tier,
+        }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        // Redirect to PayFast hosted checkout
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || "Failed to create payment URL");
+      }
+    } catch(e) {
+      setUpgradeError(e.message);
+      setUpgrading(false);
+    }
+  };
+
+  // Handle PayFast return URL (?payment=success or ?payment=cancelled)
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const payment = params.get("payment");
+    if (payment === "success") {
+      // Payment succeeded — refresh session to pick up upgraded account_type from ITN
+      // ITN updates Supabase async, so poll briefly
+      const poll = async (attempts = 0) => {
+        if (attempts > 5) return;
+        await new Promise(r => setTimeout(r, 2000));
+        if (!USE_MOCK && token) {
+          const user = await auth.getUser(token);
+          if (user?.user_metadata?.account_type === "full") {
+            const updatedSession = { ...session, user };
+            setSession(updatedSession);
+            localStorage.setItem(LS.SESSION, JSON.stringify(updatedSession));
+            setNeedsOnboarding(true); // trigger onboarding wizard
+          } else {
+            poll(attempts + 1);
+          }
+        }
+      };
+      poll();
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (payment === "cancelled") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   if (!session) return <LoginScreen onLogin={handleLogin} />;
 
-  if (needsOnboarding && !USE_MOCK) {
+  if (needsOnboarding && !USE_MOCK && !isCPDFree) {
     return <OnboardingWizard session={session} onComplete={handleOnboardingComplete} />;
   }
 
@@ -7195,7 +7261,7 @@ export default function App() {
     <AuthContext.Provider value={{ session, view, setView }}>
       <DataContext.Provider value={dataCtx}>
         <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: C.text }}>
-          <Sidebar screen={screen} setScreen={setScreen} session={session} onLogout={handleLogout} view={view} />
+          <Sidebar screen={screen} setScreen={setScreen} session={session} onLogout={handleLogout} view={view} isCPDFree={isCPDFree} onUpgrade={handleUpgradeToPro} />
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
             <TopBar screen={screen} nav={nav} />
 
