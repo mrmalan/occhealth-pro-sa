@@ -5820,6 +5820,43 @@ export default function App() {
     loadAllData();
   }, [session?.access_token]);
 
+  // JWT auto-refresh — Supabase tokens expire after 1 hour.
+  // Run every 50 minutes to stay ahead of expiry.
+  useEffect(() => {
+    if (USE_MOCK || !session?.refresh_token) return;
+
+    const refresh = async () => {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON },
+          body: JSON.stringify({ refresh_token: session.refresh_token }),
+        });
+        if (!res.ok) {
+          // Refresh token itself expired (7-day limit) — force re-login
+          console.warn("Token refresh failed — clearing session");
+          setSession(null);
+          localStorage.removeItem(LS.SESSION);
+          return;
+        }
+        const data = await res.json();
+        const updated = { ...session, access_token: data.access_token, refresh_token: data.refresh_token };
+        setSession(updated);
+        localStorage.setItem(LS.SESSION, JSON.stringify(updated));
+      } catch(e) { console.warn("Token refresh error:", e); }
+    };
+
+    // Refresh immediately if token is within 10 minutes of expiry
+    try {
+      const payload = JSON.parse(atob(session.access_token.split(".")[1]));
+      const msUntilExpiry = (payload.exp * 1000) - Date.now();
+      if (msUntilExpiry < 10 * 60 * 1000) refresh();
+    } catch(e) {}
+
+    const interval = setInterval(refresh, 50 * 60 * 1000); // every 50 minutes
+    return () => clearInterval(interval);
+  }, [session?.refresh_token]);
+
   const loadAllData = async () => {
     if (!db) return;
     setDataLoading(true);
