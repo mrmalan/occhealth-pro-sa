@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useRef, useMemo, createContext, useContext } from "react";
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "YOUR_PROJECT";
@@ -5780,7 +5780,8 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
 
   const token = session?.access_token;
-  const db = token ? sbAuth(token) : null;
+  // Memoize db so it's a stable reference — prevents useEffect([db]) infinite loops
+  const db = useMemo(() => token ? sbAuth(token) : null, [token]);
 
   // Derived: use live data when available, else mock
   const employers = liveEmployers ?? MOCK_EMPLOYERS;
