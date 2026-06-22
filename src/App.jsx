@@ -5917,20 +5917,9 @@ export default function App() {
   const dataCtx = { employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
     setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount };
 
-  const screens = {
-    dashboard:    <Dashboard session={session} navigate={navigate} />,
-    flowboard:    <OccFlowboard />,
-    employers:    <Employers navigate={navigate} />,
-    encounters:   <Encounters navigate={navigate} session={session} />,
-    surveillance: <Surveillance />,
-    fitness:      <FitnessCerts />,
-    iod:          <IODRegister />,
-    drug:         <DrugTesting />,
-    stock:        <StockCalibration />,
-    portal:       <EmployerPortal session={session} />,
-    finance:      <FinanceBilling session={session} />,
-    settings:     <Settings session={session} />,
-  };
+  // Only render the active screen — prevents all screen components mounting simultaneously
+  // which was causing all useEffect([db]) hooks to fire at once and overwhelming React
+  const screens = { active: screen };
 
   const nav = view === "employer" ? NAV_EMPLOYER : NAV_OHP;
 
@@ -5948,7 +5937,18 @@ export default function App() {
               </div>
             )}
             <div style={{ flex: 1, padding: "1.5rem", overflowY: "auto", maxWidth: 800 }}>
-              {screens[screen] || <div style={{ color: C.textSub }}>Coming soon</div>}
+              {screen === "dashboard"    && <Dashboard session={session} navigate={navigate} />}
+              {screen === "flowboard"    && <OccFlowboard />}
+              {screen === "employers"    && <Employers navigate={navigate} />}
+              {screen === "encounters"   && <Encounters navigate={navigate} session={session} />}
+              {screen === "surveillance" && <Surveillance />}
+              {screen === "fitness"      && <FitnessCerts />}
+              {screen === "iod"          && <IODRegister />}
+              {screen === "drug"         && <DrugTesting />}
+              {screen === "stock"        && <StockCalibration />}
+              {screen === "portal"       && <EmployerPortal session={session} />}
+              {screen === "finance"      && <FinanceBilling session={session} />}
+              {screen === "settings"     && <Settings session={session} />}
             </div>
           </div>
         </div>
