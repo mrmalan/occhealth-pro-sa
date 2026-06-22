@@ -2581,6 +2581,9 @@ const FitnessCerts = () => {
   );
 };
 
+
+const IODStub = () => <div style={{padding:'2rem'}}>IOD Register - loading test</div>;
+
 const IODRegister = () => {
   const { persons, employers, db, refreshData } = useData();
   const [generatingId, setGeneratingId] = useState(null);
@@ -5926,7 +5929,7 @@ export default function App() {
       case "encounters":   return <Encounters navigate={navigate} session={session} />;
       case "surveillance": return <Surveillance />;
       case "fitness":      return <FitnessCerts />;
-      case "iod":          return <IODRegister />;
+      case "iod":          return <IODStub />;
       case "drug":         return <DrugTesting />;
       case "stock":        return <StockCalibration />;
       case "portal":       return <EmployerPortal session={session} />;
