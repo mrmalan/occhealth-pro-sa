@@ -466,6 +466,8 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
   };
   const [form, setForm] = useState(EMPTY_PERSON);
   const [localPersons, setLocalPersons] = useState(persons);
+  const [personPage, setPersonPage] = useState(0);
+  const PERSONS_PER_PAGE = 20;
 
   // Keep in sync if parent refreshes — use length + ids as dep to avoid infinite loop
   useEffect(() => setLocalPersons(persons), [persons.map(p => p.id).join(",")]);
@@ -512,6 +514,8 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
     const q = search.toLowerCase();
     return !q || `${p.first_name} ${p.last_name} ${p.job_title || ""} ${p.department || ""} ${p.employee_number || ""}`.toLowerCase().includes(q);
   });
+  const totalPages = Math.ceil(filteredPersons.length / PERSONS_PER_PAGE);
+  const pagedPersons = filteredPersons.slice(personPage * PERSONS_PER_PAGE, (personPage + 1) * PERSONS_PER_PAGE);
 
   return (
     <div>
@@ -611,7 +615,14 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
       {filteredPersons.length === 0 && localPersons.length > 0 && (
         <div style={{ fontSize: 13, color: C.textTert, padding: "1rem 0", textAlign: "center" }}>No employees match "{search}"</div>
       )}
-      {filteredPersons.map(p => (
+      {totalPages > 1 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, padding: "8px 0" }}>
+          <Btn variant="ghost" size="sm" onClick={() => setPersonPage(p => Math.max(0, p - 1))} disabled={personPage === 0}>← Prev</Btn>
+          <span style={{ fontSize: 12, color: C.textSub }}>Page {personPage + 1} of {totalPages} ({filteredPersons.length} employees)</span>
+          <Btn variant="ghost" size="sm" onClick={() => setPersonPage(p => Math.min(totalPages - 1, p + 1))} disabled={personPage === totalPages - 1}>Next →</Btn>
+        </div>
+      )}
+      {pagedPersons.map(p => (
         <Card key={p.id} style={{ marginBottom: 8, cursor: "pointer" }} onClick={() => setSelPerson(p)}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
@@ -2499,7 +2510,7 @@ const FitnessCerts = () => {
 
       {/* Search */}
       <div style={{ position: "relative", marginBottom: "1rem" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by employee or role…"
+        <input value={search} onChange={e => { setSearch(e.target.value); setPersonPage(0); }} placeholder="Search by employee or role…"
           style={{ width: "100%", padding: "8px 10px 8px 32px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box", background: C.bgCard }} />
         <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: C.textTert }}>🔍</span>
         {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", fontSize: 14, cursor: "pointer", color: C.textTert }}>✕</button>}
@@ -3364,6 +3375,7 @@ const EmployerPortal = ({ session }) => {
   const [drugData, setDrugData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
 
   // Mock data for demo mode
   const MOCK_SURV = [
@@ -3419,6 +3431,76 @@ const EmployerPortal = ({ session }) => {
   };
 
   useEffect(() => { loadPortalData(); }, [selEmployer?.id, period, db]);
+
+  const generateComplianceReport = async () => {
+    setGeneratingReport(true);
+    try {
+      const periodLabel = PERIOD_OPTIONS.find(o => o.value === period)?.label || `Last ${period} months`;
+      // Aggregate surveillance by type
+      const survByTypeFull = Object.entries(survData.reduce((acc, r) => {
+        if (!acc[r.test_type]) acc[r.test_type] = { test_type: r.test_type, total_due: 0, completed: 0, overdue: 0 };
+        acc[r.test_type].total_due  += Number(r.total_due || 0);
+        acc[r.test_type].completed  += Number(r.completed || 0);
+        acc[r.test_type].overdue    += Number(r.overdue || 0);
+        return acc;
+      }, {})).map(([, v]) => ({
+        ...v,
+        compliance_pct: v.total_due > 0 ? ((v.completed / v.total_due) * 100).toFixed(1) : "0.0",
+      }));
+
+      const payload = {
+        employer: {
+          name: selEmployer?.name,
+          coida_ref: selEmployer?.coida_ref,
+          industry_class: selEmployer?.industry_class,
+          coida_insurer: selEmployer?.coida_insurer,
+        },
+        practice: {
+          name: "OccHealth Pro SA",
+          practitioner: session?.user?.user_metadata?.full_name || "",
+        },
+        surveillance: {
+          compliance_pct: totalDue > 0 ? ((totalCompleted / totalDue) * 100).toFixed(1) : "0.0",
+          total_due: totalDue,
+          completed: totalCompleted,
+          overdue: totalOverdue,
+          by_type: survByTypeFull,
+        },
+        fitness: fitnessData || {},
+        iod: {
+          iod_count: totalIOD,
+          lost_time_injuries: totalLTI,
+          fatalities: totalFatalities,
+          claims_submitted: iodData.reduce((s, r) => s + Number(r.claims_submitted || 0), 0),
+        },
+        drug: {
+          tests_conducted: totalTests,
+          positives: totalPositives,
+          refusals: totalRefusals,
+          positivity_rate: overallPositivity,
+        },
+        period_label: periodLabel,
+        generated_at: new Date().toISOString(),
+      };
+
+      const res = await fetch("/.netlify/functions/compliance-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`Report error: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `compliance-report-${(selEmployer?.name || "employer").replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch(e) {
+      alert("Report generation failed: " + e.message);
+    }
+    setGeneratingReport(false);
+  };
 
   // ── Derived KPIs ──
   // Surveillance: overall compliance across all test types in period
@@ -3494,6 +3576,12 @@ const EmployerPortal = ({ session }) => {
               disabled={loading}
               style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer" }}>
               {loading ? "Loading..." : "⟳ Refresh"}
+            </button>
+            <button
+              onClick={generateComplianceReport}
+              disabled={generatingReport || loading}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, border: "none", background: generatingReport ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.2)", color: "#fff", cursor: generatingReport ? "default" : "pointer", fontWeight: 500 }}>
+              {generatingReport ? "Generating..." : "📄 Compliance Report"}
             </button>
           </div>
         </div>
