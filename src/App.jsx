@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "YOUR_PROJECT";
@@ -2581,8 +2581,6 @@ const FitnessCerts = () => {
   );
 };
 
-
-const IODStub = () => <div style={{padding:'2rem'}}>IOD Register - loading test</div>;
 
 const IODRegister = () => {
   const { persons, employers, db, refreshData } = useData();
@@ -5782,8 +5780,7 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
 
   const token = session?.access_token;
-  // useMemo keeps db stable — a new object every render would cause useEffect([db]) infinite loops
-  const db = useMemo(() => token ? sbAuth(token) : null, [token]);
+  const db = token ? sbAuth(token) : null;
 
   // Derived: use live data when available, else mock
   const employers = liveEmployers ?? MOCK_EMPLOYERS;
@@ -5916,10 +5913,8 @@ export default function App() {
   // iodCount: derived from live data if available — feeds Dashboard stat card
   const iodCount = MOCK_IOD.length; // replaced with live count once IODRegister loads
 
-  const dataCtx = useMemo(() => ({ employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
-    setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employers, persons, encounters, fitnessCerts, db, token, dataLoading, iodCount]);
+  const dataCtx = { employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
+    setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount };
 
   const renderScreen = (s) => {
     switch(s) {
@@ -5929,7 +5924,7 @@ export default function App() {
       case "encounters":   return <Encounters navigate={navigate} session={session} />;
       case "surveillance": return <Surveillance />;
       case "fitness":      return <FitnessCerts />;
-      case "iod":          return <IODStub />;
+      case "iod":          return <IODRegister />;
       case "drug":         return <DrugTesting />;
       case "stock":        return <StockCalibration />;
       case "portal":       return <EmployerPortal session={session} />;
