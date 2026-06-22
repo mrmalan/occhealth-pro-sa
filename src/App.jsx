@@ -766,7 +766,9 @@ const makeClient = (getHeaders) => {
 
         // READ
         select: (filter = "") => {
-          _method = "GET";
+          // Only set GET if no write method already set (i.e. not after insert/update)
+          if (_method === "GET" || !_method) _method = "GET";
+          // If called after insert/update, just ensure return=representation (already set by _wantReturn)
           if (filter) _filters.push(...filter.split("&").filter(Boolean));
           return builder;
         },
