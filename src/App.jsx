@@ -5913,8 +5913,10 @@ export default function App() {
   // iodCount: derived from live data if available — feeds Dashboard stat card
   const iodCount = MOCK_IOD.length; // replaced with live count once IODRegister loads
 
-  const dataCtx = { employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
-    setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount };
+  const dataCtx = useMemo(() => ({ employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
+    setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [employers, persons, encounters, fitnessCerts, db, token, dataLoading, iodCount]);
 
   const screens = {
     dashboard:    <Dashboard session={session} navigate={navigate} />,
