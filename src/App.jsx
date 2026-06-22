@@ -3371,6 +3371,11 @@ const EmployerPortal = ({ session }) => {
   // Period filter
   const [period, setPeriod] = useState("6"); // months back
 
+  // Phase 7 state
+  const [portalTab, setPortalTab] = useState("overview");
+  const [showAddEmployer, setShowAddEmployer] = useState(false);
+  const [generatingClientPack, setGeneratingClientPack] = useState(false);
+
   // Data from materialised views
   const [survData, setSurvData] = useState([]);
   const [iodData, setIodData] = useState([]);
@@ -3434,6 +3439,22 @@ const EmployerPortal = ({ session }) => {
   };
 
   useEffect(() => { loadPortalData(); }, [selEmployer?.id, period, db]);
+
+  const handleAddEmployerComplete = (result) => {
+    setShowAddEmployer(false);
+    loadPortalData();
+  };
+
+  const handleGenerateClientPack = async () => {
+    setGeneratingClientPack(true);
+    try {
+      const periodLabel = PERIOD_OPTIONS.find(o => o.value === period)?.label || `Last ${period} months`;
+      await generateClientPack(selEmployer, session, survData, fitnessData, iodData, drugData, periodLabel);
+    } catch(e) {
+      alert("Client pack generation failed: " + e.message);
+    }
+    setGeneratingClientPack(false);
+  };
 
   const generateComplianceReport = async () => {
     setGeneratingReport(true);
@@ -3567,7 +3588,7 @@ const EmployerPortal = ({ session }) => {
               Aggregate compliance view · No individual clinical records
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <select
               value={period}
               onChange={e => setPeriod(e.target.value)}
@@ -3581,10 +3602,21 @@ const EmployerPortal = ({ session }) => {
               {loading ? "Loading..." : "⟳ Refresh"}
             </button>
             <button
+              onClick={() => setShowAddEmployer(true)}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.2)", color: "#fff", cursor: "pointer", fontWeight: 500 }}>
+              + Add employer
+            </button>
+            <button
+              onClick={handleGenerateClientPack}
+              disabled={generatingClientPack || loading}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, border: "none", background: generatingClientPack ? "rgba(255,255,255,0.08)" : "#5DCAA5", color: "#fff", cursor: generatingClientPack ? "default" : "pointer", fontWeight: 600 }}>
+              {generatingClientPack ? "Generating..." : "📦 Client pack"}
+            </button>
+            <button
               onClick={generateComplianceReport}
               disabled={generatingReport || loading}
               style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, border: "none", background: generatingReport ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.2)", color: "#fff", cursor: generatingReport ? "default" : "pointer", fontWeight: 500 }}>
-              {generatingReport ? "Generating..." : "📄 Compliance Report"}
+              {generatingReport ? "Generating..." : "📄 OHP report"}
             </button>
           </div>
         </div>
@@ -3601,6 +3633,150 @@ const EmployerPortal = ({ session }) => {
           <strong>Confidentiality notice:</strong> This portal displays aggregate workforce health metrics only. Individual clinical records, fitness assessments, test results, and personal medical information are confidential and accessible to registered occupational health practitioners only, in accordance with POPIA and the National Health Act.
         </div>
       </Card>
+
+      {/* Phase 7B — Tab strip */}
+      <div style={{ display: "flex", gap: 4, background: C.bgSub, borderRadius: 9, padding: 3, marginBottom: "1.25rem" }}>
+        {[
+          { id: "overview", label: "Overview" },
+          { id: "action", label: "Action required" },
+          { id: "dol", label: "DoL readiness" },
+          { id: "trends", label: "Trends" },
+        ].map(t => (
+          <button key={t.id} onClick={() => setPortalTab(t.id)}
+            style={{ flex: 1, padding: "7px 6px", borderRadius: 6, border: "none", background: portalTab === t.id ? "#fff" : "transparent", color: portalTab === t.id ? C.tealDark : C.muted, fontSize: 12, fontWeight: portalTab === t.id ? 600 : 400, cursor: "pointer", boxShadow: portalTab === t.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Phase 7A — Employer wizard modal */}
+      {showAddEmployer && (
+        <EmployerOnboardingWizard
+          session={session}
+          onComplete={handleAddEmployerComplete}
+          onCancel={() => setShowAddEmployer(false)}
+        />
+      )}
+
+      {/* Phase 7B — DoL Readiness tab */}
+      {portalTab === "dol" && (() => {
+        const dolScore = calcDoLScore(survData, fitnessData, iodData, drugData);
+        return (
+          <div>
+            <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, padding: "1.5rem", marginBottom: "1.25rem", textAlign: "center" }}>
+              <div style={{ fontSize: 12, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>DoL Readiness Score</div>
+              <div style={{ fontSize: 72, fontWeight: 800, color: dolScore.gradeColor, lineHeight: 1 }}>{dolScore.grade}</div>
+              <div style={{ fontSize: 28, fontWeight: 600, color: dolScore.gradeColor, marginTop: 4 }}>{dolScore.total} / 100</div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 8 }}>
+                {dolScore.total >= 90 ? "Excellent — well-prepared for a DoL inspection." : dolScore.total >= 75 ? "Good — minor gaps to address." : dolScore.total >= 60 ? "Fair — attention required before an inspection." : "At risk — significant compliance gaps exist."}
+              </div>
+            </div>
+            {dolScore.breakdown.map((item, i) => (
+              <div key={i} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "1rem 1.25rem", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{item.label}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: item.score >= item.max * 0.9 ? C.teal : item.score >= item.max * 0.7 ? C.amber : C.red }}>
+                    {item.score}/{item.max}
+                  </div>
+                </div>
+                <div style={{ height: 6, borderRadius: 99, background: C.bgSub }}>
+                  <div style={{ height: "100%", borderRadius: 99, background: item.score >= item.max * 0.9 ? C.teal : item.score >= item.max * 0.7 ? C.amber : C.red, width: `${(item.score / item.max) * 100}%`, transition: "width 0.4s" }} />
+                </div>
+                {item.warning && <div style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>⚠ {item.warning}</div>}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Phase 7B — Action required tab */}
+      {portalTab === "action" && (() => {
+        const actions = [];
+        if (fitnessData?.expired > 0) actions.push({ severity: "high", icon: "🔴", title: `${fitnessData.expired} fitness certificate${fitnessData.expired > 1 ? "s" : ""} expired`, detail: "Schedule renewal assessments immediately.", category: "Fitness certs" });
+        if (fitnessData?.expiring_30_days > 0) actions.push({ severity: "medium", icon: "🟡", title: `${fitnessData.expiring_30_days} fitness certificate${fitnessData.expiring_30_days > 1 ? "s" : ""} expiring within 30 days`, detail: "Contact employees to schedule renewal assessments.", category: "Fitness certs" });
+        const totalOverdue = survData.reduce((s, r) => s + Number(r.overdue || 0), 0);
+        if (totalOverdue > 0) actions.push({ severity: "high", icon: "🔴", title: `${totalOverdue} overdue surveillance test${totalOverdue > 1 ? "s" : ""}`, detail: "Schedule outstanding health surveillance tests.", category: "Surveillance" });
+        const totalIOD = iodData.reduce((s, r) => s + Number(r.iod_count || 0), 0);
+        const claimsSubmitted = iodData.reduce((s, r) => s + Number(r.claims_submitted || 0), 0);
+        if (totalIOD > claimsSubmitted) actions.push({ severity: "medium", icon: "🟡", title: `${totalIOD - claimsSubmitted} IOD incident${(totalIOD - claimsSubmitted) > 1 ? "s" : ""} without submitted COIDA claim`, detail: "Submit outstanding COIDA claims to avoid 21-day deadline breach.", category: "IOD / COIDA" });
+        const totalDue = survData.reduce((s, r) => s + Number(r.total_due || 0), 0);
+        const totalCompleted = survData.reduce((s, r) => s + Number(r.completed || 0), 0);
+        const compPct = totalDue > 0 ? (totalCompleted / totalDue) * 100 : null;
+        if (compPct !== null && compPct < 70) actions.push({ severity: "high", icon: "🔴", title: `Surveillance compliance at ${compPct.toFixed(0)}% — below acceptable threshold`, detail: "DoL requires meaningful compliance. Schedule outstanding tests.", category: "Surveillance" });
+        const totalTests = drugData.reduce((s, r) => s + Number(r.tests_conducted || 0), 0);
+        if (totalTests === 0) actions.push({ severity: "medium", icon: "🟡", title: "No drug & alcohol tests recorded in period", detail: "Ensure testing programme is active and results are being recorded.", category: "Drug testing" });
+
+        return actions.length === 0 ? (
+          <Card style={{ textAlign: "center", padding: "2.5rem" }}>
+            <div style={{ fontSize: 32, marginBottom: 10 }}>✅</div>
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4, color: C.tealDark }}>No urgent actions</div>
+            <div style={{ fontSize: 13, color: C.muted }}>All compliance indicators are within acceptable ranges for the selected period.</div>
+          </Card>
+        ) : (
+          <div>
+            {actions.map((action, i) => (
+              <div key={i} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${action.severity === "high" ? "#fca5a5" : "#fde68a"}`, padding: "1rem 1.25rem", marginBottom: 8 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ fontSize: 18 }}>{action.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>{action.title}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{action.detail}</div>
+                    <div style={{ fontSize: 11, color: C.teal, marginTop: 4, fontWeight: 500 }}>{action.category}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Phase 7B — Trends tab */}
+      {portalTab === "trends" && (
+        <div>
+          {survData.length > 0 && (
+            <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, padding: "1rem 1.25rem", marginBottom: "1.25rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: "1rem" }}>Surveillance compliance — month by month</div>
+              {Array.from(new Set(survData.map(r => r.month))).sort().map(month => {
+                const monthRows = survData.filter(r => r.month === month);
+                const due = monthRows.reduce((s, r) => s + Number(r.total_due || 0), 0);
+                const done = monthRows.reduce((s, r) => s + Number(r.completed || 0), 0);
+                const pct = due > 0 ? Math.round((done / due) * 100) : 0;
+                const label = new Date(month).toLocaleDateString("en-ZA", { month: "short", year: "numeric" });
+                return (
+                  <div key={month} style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.muted, marginBottom: 3 }}>
+                      <span>{label}</span><span style={{ fontWeight: 600, color: pct >= 90 ? C.teal : pct >= 70 ? C.amber : C.red }}>{pct}%</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 99, background: C.bgSub }}>
+                      <div style={{ height: "100%", borderRadius: 99, background: pct >= 90 ? C.teal : pct >= 70 ? C.amber : C.red, width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {iodData.length > 0 && (
+            <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, padding: "1rem 1.25rem", marginBottom: "1.25rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: "1rem" }}>IOD incidents — month by month</div>
+              <MonthBars data={iodData} valueKey="iod_count" color={C.amber} height={60} />
+            </div>
+          )}
+          {drugData.length > 0 && (
+            <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, padding: "1rem 1.25rem" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: "1rem" }}>Drug test positivity rate — month by month</div>
+              <MonthBars data={drugData} valueKey="positivity_rate" color={C.red} height={60} />
+            </div>
+          )}
+          {survData.length === 0 && iodData.length === 0 && drugData.length === 0 && (
+            <Card style={{ textAlign: "center", padding: "2rem" }}>
+              <div style={{ fontSize: 13, color: C.muted }}>No trend data available for this period.</div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Overview tab — existing KPI content */}
+      {portalTab === "overview" && <>
 
       {/* ── KPI ROW ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: "1.5rem" }}>
@@ -3747,8 +3923,381 @@ const EmployerPortal = ({ session }) => {
           <div style={{ fontSize: 12, color: C.textTert }}>Data populates as the OHP records encounters, surveillance results, IOD incidents, and drug tests.</div>
         </Card>
       )}
+
+      </> /* end overview tab */}
     </div>
   );
+};
+
+
+// ─── PHASE 7 — EMPLOYER COMPLIANCE INTELLIGENCE ───────────────────────────────
+
+// ── 7A: Employer Onboarding Wizard ───────────────────────────────────────────
+const INDUSTRY_CLASSES = [
+  "Mining & quarrying", "Construction", "Manufacturing", "Agriculture & forestry",
+  "Transport & logistics", "Wholesale & retail", "Financial services",
+  "Healthcare", "Education", "Government & public sector", "Other",
+];
+
+const EmployerOnboardingWizard = ({ session, onComplete, onCancel, existingEmployer }) => {
+  const { db } = useData();
+  const [step, setStep] = useState(1);
+  const TOTAL_STEPS = 4;
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  // Step 1 — Basic details
+  const [name, setName] = useState(existingEmployer?.name || "");
+  const [coidaRef, setCoidaRef] = useState(existingEmployer?.coida_ref || "");
+  const [industryClass, setIndustryClass] = useState(existingEmployer?.industry_class || INDUSTRY_CLASSES[0]);
+  const [insurer, setInsurer] = useState(existingEmployer?.coida_insurer || "compensation_fund");
+  const [contactEmail, setContactEmail] = useState(existingEmployer?.contact_email || "");
+
+  // Step 2 — Sites
+  const [sites, setSites] = useState(existingEmployer?.sites || [""]);
+  const addSite = () => setSites(s => [...s, ""]);
+  const updateSite = (i, v) => setSites(s => s.map((x, idx) => idx === i ? v : x));
+  const removeSite = (i) => setSites(s => s.filter((_, idx) => idx !== i));
+
+  // Step 3 — Hazard profiles
+  const [hazardProfiles, setHazardProfiles] = useState([
+    { name: "", hazard_codes: "", surveillance_types: [], period_months: 12 }
+  ]);
+  const SURV_TYPES = ["audiometry", "spirometry", "vision", "bio_monitor", "blood_pressure", "glucose"];
+  const SURV_LABELS = { audiometry: "Audiometry", spirometry: "Spirometry", vision: "Vision", bio_monitor: "Bio monitoring", blood_pressure: "Blood pressure", glucose: "Glucose" };
+
+  const addProfile = () => setHazardProfiles(p => [...p, { name: "", hazard_codes: "", surveillance_types: [], period_months: 12 }]);
+  const updateProfile = (i, key, val) => setHazardProfiles(p => p.map((x, idx) => idx === i ? { ...x, [key]: val } : x));
+  const toggleSurvType = (profileIdx, type) => {
+    setHazardProfiles(p => p.map((x, idx) => {
+      if (idx !== profileIdx) return x;
+      const types = x.surveillance_types.includes(type)
+        ? x.surveillance_types.filter(t => t !== type)
+        : [...x.surveillance_types, type];
+      return { ...x, surveillance_types: types };
+    }));
+  };
+  const removeProfile = (i) => setHazardProfiles(p => p.filter((_, idx) => idx !== i));
+
+  // Step 4 — Review & save
+  const handleSave = async () => {
+    setSaving(true); setError("");
+    try {
+      if (USE_MOCK) {
+        await new Promise(r => setTimeout(r, 800));
+        onComplete({ name, sites: sites.filter(Boolean), hazardProfiles });
+        return;
+      }
+
+      // Upsert employer
+      const empPayload = {
+        name, coida_ref: coidaRef || null, industry_class: industryClass,
+        coida_insurer: insurer, contact_email: contactEmail || null,
+      };
+      let empId = existingEmployer?.id;
+      if (empId) {
+        await db.from("employer").update(empPayload).eq("id", empId);
+      } else {
+        const res = await db.from("employer").insert(empPayload).select();
+        empId = res.data?.[0]?.id;
+        if (!empId) throw new Error("Employer insert failed");
+      }
+
+      // Upsert hazard profiles
+      for (const hp of hazardProfiles.filter(h => h.name)) {
+        await db.from("hazard_profile").insert({
+          employer_id: empId,
+          name: hp.name,
+          hazard_codes: hp.hazard_codes ? hp.hazard_codes.split(",").map(s => s.trim()).filter(Boolean) : [],
+          surveillance_types: hp.surveillance_types,
+          surveillance_period_months: hp.period_months,
+        });
+      }
+
+      onComplete({ empId, name, sites: sites.filter(Boolean), hazardProfiles });
+    } catch(e) {
+      setError(e.message);
+    }
+    setSaving(false);
+  };
+
+  const stepLabel = ["Employer details", "Sites & locations", "Hazard profiles", "Review & confirm"];
+  const canNext = step === 1 ? name.length > 0 : step === 2 ? sites.some(s => s.trim()) : step === 3 ? true : true;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 560, maxHeight: "90vh", overflow: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.2)" }}>
+        {/* Wizard header */}
+        <div style={{ background: C.tealDark, borderRadius: "14px 14px 0 0", padding: "1.25rem 1.5rem" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 12 }}>
+            {existingEmployer ? "Edit employer" : "Add employer"}
+          </div>
+          {/* Step progress */}
+          <div style={{ display: "flex", gap: 4 }}>
+            {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+              <div key={i} style={{ flex: 1, height: 4, borderRadius: 99, background: i < step ? "#5DCAA5" : "rgba(255,255,255,0.2)" }} />
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: "#9FE1CB", marginTop: 8 }}>Step {step} of {TOTAL_STEPS} — {stepLabel[step - 1]}</div>
+        </div>
+
+        <div style={{ padding: "1.5rem" }}>
+          {/* ── Step 1: Employer details ── */}
+          {step === 1 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Company / employer name *</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Acme Manufacturing (Pty) Ltd"
+                  style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>COIDA registration number</label>
+                <input value={coidaRef} onChange={e => setCoidaRef(e.target.value)} placeholder="e.g. W123456"
+                  style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Industry class</label>
+                <select value={industryClass} onChange={e => setIndustryClass(e.target.value)}
+                  style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                  {INDUSTRY_CLASSES.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>COIDA insurer</label>
+                <select value={insurer} onChange={e => setInsurer(e.target.value)}
+                  style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                  <option value="compensation_fund">Compensation Fund (DoL)</option>
+                  <option value="rma">Rand Mutual Assurance (RMA)</option>
+                  <option value="fem">Federated Employers Mutual (FEM)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Contact email</label>
+                <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="hr@company.co.za"
+                  style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 2: Sites ── */}
+          {step === 2 && (
+            <div>
+              <p style={{ fontSize: 13, color: C.muted, marginBottom: "1rem", marginTop: 0 }}>
+                List the sites or locations where this employer operates. The OHP will be able to record which site each encounter and incident occurred at.
+              </p>
+              {sites.map((site, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <input value={site} onChange={e => updateSite(i, e.target.value)} placeholder={`Site ${i + 1} — e.g. Johannesburg plant`}
+                    style={{ flex: 1, padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13 }} />
+                  {sites.length > 1 && (
+                    <button onClick={() => removeSite(i)} style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", color: C.muted, fontSize: 13 }}>✕</button>
+                  )}
+                </div>
+              ))}
+              <button onClick={addSite} style={{ fontSize: 13, color: C.teal, background: "none", border: `1px dashed ${C.tealMid}`, borderRadius: 7, padding: "7px 14px", cursor: "pointer", marginTop: 4 }}>
+                + Add another site
+              </button>
+            </div>
+          )}
+
+          {/* ── Step 3: Hazard profiles ── */}
+          {step === 3 && (
+            <div>
+              <p style={{ fontSize: 13, color: C.muted, marginBottom: "1rem", marginTop: 0 }}>
+                Define the hazard profiles for this employer. Each profile specifies which employees need which health surveillance tests and how often. Leave blank to add later.
+              </p>
+              {hazardProfiles.map((hp, i) => (
+                <div key={i} style={{ background: C.bgSub, borderRadius: 10, padding: "1rem", marginBottom: 10, position: "relative" }}>
+                  {hazardProfiles.length > 1 && (
+                    <button onClick={() => removeProfile(i)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 14 }}>✕</button>
+                  )}
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ fontSize: 11, color: C.muted, display: "block", marginBottom: 3 }}>Profile name</label>
+                    <input value={hp.name} onChange={e => updateProfile(i, "name", e.target.value)} placeholder="e.g. Noise-exposed workers"
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ fontSize: 11, color: C.muted, display: "block", marginBottom: 3 }}>Hazard codes (comma-separated)</label>
+                    <input value={hp.hazard_codes} onChange={e => updateProfile(i, "hazard_codes", e.target.value)} placeholder="e.g. NOISE, DUST, VIBRATION"
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ fontSize: 11, color: C.muted, display: "block", marginBottom: 6 }}>Surveillance tests required</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {SURV_TYPES.map(type => (
+                        <button key={type} onClick={() => toggleSurvType(i, type)}
+                          style={{ padding: "5px 10px", borderRadius: 20, border: `1px solid ${hp.surveillance_types.includes(type) ? C.teal : C.border}`, background: hp.surveillance_types.includes(type) ? C.tealLight : "#fff", color: hp.surveillance_types.includes(type) ? C.tealDark : C.muted, fontSize: 12, cursor: "pointer", fontWeight: hp.surveillance_types.includes(type) ? 600 : 400 }}>
+                          {SURV_LABELS[type]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: C.muted, display: "block", marginBottom: 3 }}>Surveillance period</label>
+                    <select value={hp.period_months} onChange={e => updateProfile(i, "period_months", Number(e.target.value))}
+                      style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff" }}>
+                      <option value={6}>Every 6 months</option>
+                      <option value={12}>Annually</option>
+                      <option value={24}>Every 2 years</option>
+                      <option value={36}>Every 3 years</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+              <button onClick={addProfile} style={{ fontSize: 13, color: C.teal, background: "none", border: `1px dashed ${C.tealMid}`, borderRadius: 7, padding: "7px 14px", cursor: "pointer" }}>
+                + Add hazard profile
+              </button>
+            </div>
+          )}
+
+          {/* ── Step 4: Review ── */}
+          {step === 4 && (
+            <div>
+              <div style={{ background: C.tealLight, borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: 8 }}>Employer details</div>
+                <div style={{ fontSize: 13, color: C.text, lineHeight: 1.8 }}>
+                  <div><strong>Name:</strong> {name}</div>
+                  {coidaRef && <div><strong>COIDA ref:</strong> {coidaRef}</div>}
+                  <div><strong>Industry:</strong> {industryClass}</div>
+                  <div><strong>Insurer:</strong> {insurer.replace(/_/g, " ").toUpperCase()}</div>
+                  {contactEmail && <div><strong>Contact:</strong> {contactEmail}</div>}
+                </div>
+              </div>
+              {sites.filter(Boolean).length > 0 && (
+                <div style={{ background: C.bgSub, borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: 8 }}>Sites</div>
+                  {sites.filter(Boolean).map((s, i) => <div key={i} style={{ fontSize: 13, color: C.text, marginBottom: 2 }}>• {s}</div>)}
+                </div>
+              )}
+              {hazardProfiles.filter(h => h.name).length > 0 && (
+                <div style={{ background: C.bgSub, borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: 8 }}>Hazard profiles</div>
+                  {hazardProfiles.filter(h => h.name).map((hp, i) => (
+                    <div key={i} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{hp.name}</div>
+                      <div style={{ fontSize: 12, color: C.muted }}>
+                        {hp.surveillance_types.join(", ") || "No tests selected"} · Every {hp.period_months} months
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {error && <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 7, padding: "8px 10px", fontSize: 12, color: "#dc2626", marginBottom: 10 }}>{error}</div>}
+            </div>
+          )}
+
+          {/* Nav buttons */}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: "1.5rem" }}>
+            <button onClick={step === 1 ? onCancel : () => setStep(s => s - 1)}
+              style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>
+              {step === 1 ? "Cancel" : "Back"}
+            </button>
+            {step < TOTAL_STEPS ? (
+              <button onClick={() => setStep(s => s + 1)} disabled={!canNext}
+                style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: canNext ? C.teal : C.bgSub, color: canNext ? "#fff" : C.muted, fontSize: 13, fontWeight: 600, cursor: canNext ? "pointer" : "default" }}>
+                Next
+              </button>
+            ) : (
+              <button onClick={handleSave} disabled={saving}
+                style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: saving ? C.bgSub : C.teal, color: saving ? C.muted : "#fff", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>
+                {saving ? "Saving..." : "Save employer"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── 7B: DoL Readiness Score ────────────────────────────────────────────────────
+const calcDoLScore = (survData, fitnessData, iodData, drugData) => {
+  const scores = [];
+  // Surveillance compliance (40 pts)
+  const totalDue = survData.reduce((s, r) => s + Number(r.total_due || 0), 0);
+  const totalCompleted = survData.reduce((s, r) => s + Number(r.completed || 0), 0);
+  const survPct = totalDue > 0 ? (totalCompleted / totalDue) : null;
+  if (survPct !== null) scores.push({ label: "Health surveillance", score: Math.round(survPct * 40), max: 40, pct: survPct });
+  else scores.push({ label: "Health surveillance", score: 0, max: 40, pct: null, warning: "No data" });
+
+  // Fitness certs (25 pts)
+  if (fitnessData && fitnessData.total_certs > 0) {
+    const fitPct = fitnessData.current / fitnessData.total_certs;
+    scores.push({ label: "Fitness certificates current", score: Math.round(fitPct * 25), max: 25, pct: fitPct });
+  } else {
+    scores.push({ label: "Fitness certificates current", score: 0, max: 25, pct: null, warning: "No certs" });
+  }
+
+  // IOD documentation (20 pts) — penalise undocumented incidents
+  const totalIOD = iodData.reduce((s, r) => s + Number(r.iod_count || 0), 0);
+  const claimsSubmitted = iodData.reduce((s, r) => s + Number(r.claims_submitted || 0), 0);
+  const iodDoc = totalIOD === 0 ? 1 : claimsSubmitted / totalIOD;
+  scores.push({ label: "IOD documentation & claims", score: Math.round(iodDoc * 20), max: 20, pct: iodDoc });
+
+  // Drug testing (15 pts) — 0 tests = 0 pts, some tests = partial, refusals documented = full
+  const totalTests = drugData.reduce((s, r) => s + Number(r.tests_conducted || 0), 0);
+  const drugScore = totalTests >= 10 ? 15 : Math.round((totalTests / 10) * 15);
+  scores.push({ label: "Drug & alcohol testing", score: drugScore, max: 15, pct: totalTests / 10 });
+
+  const total = scores.reduce((s, x) => s + x.score, 0);
+  const grade = total >= 90 ? "A" : total >= 75 ? "B" : total >= 60 ? "C" : total >= 40 ? "D" : "F";
+  const gradeColor = total >= 90 ? C.teal : total >= 75 ? "#16a34a" : total >= 60 ? C.amber : C.red;
+  return { total, grade, gradeColor, breakdown: scores };
+};
+
+// ── 7C: Client Pack PDF trigger ───────────────────────────────────────────────
+const generateClientPack = async (employer, session, survData, fitnessData, iodData, drugData, period) => {
+  const dolScore = calcDoLScore(survData, fitnessData, iodData, drugData);
+  const totalDue = survData.reduce((s, r) => s + Number(r.total_due || 0), 0);
+  const totalCompleted = survData.reduce((s, r) => s + Number(r.completed || 0), 0);
+  const totalOverdue = survData.reduce((s, r) => s + Number(r.overdue || 0), 0);
+  const totalIOD = iodData.reduce((s, r) => s + Number(r.iod_count || 0), 0);
+  const totalLTI = iodData.reduce((s, r) => s + Number(r.lost_time_injuries || 0), 0);
+  const totalTests = drugData.reduce((s, r) => s + Number(r.tests_conducted || 0), 0);
+  const totalPositives = drugData.reduce((s, r) => s + Number(r.positives || 0), 0);
+  const survByType = survData.reduce((acc, r) => {
+    if (!acc[r.test_type]) acc[r.test_type] = { total_due: 0, completed: 0, overdue: 0 };
+    acc[r.test_type].total_due += Number(r.total_due || 0);
+    acc[r.test_type].completed += Number(r.completed || 0);
+    acc[r.test_type].overdue += Number(r.overdue || 0);
+    return acc;
+  }, {});
+  const TEST_LABEL = { audiometry: "Audiometry", spirometry: "Spirometry", vision: "Vision", bio_monitor: "Bio monitoring", blood_pressure: "Blood pressure", glucose: "Glucose" };
+
+  const payload = {
+    employer: { name: employer?.name, coida_ref: employer?.coida_ref, industry_class: employer?.industry_class, coida_insurer: employer?.coida_insurer },
+    practice: { name: "OccHealth Pro SA", practitioner: session?.user?.user_metadata?.full_name || "" },
+    dol_score: { total: dolScore.total, grade: dolScore.grade, breakdown: dolScore.breakdown },
+    surveillance: {
+      compliance_pct: totalDue > 0 ? ((totalCompleted / totalDue) * 100).toFixed(1) : "0.0",
+      total_due: totalDue, completed: totalCompleted, overdue: totalOverdue,
+      by_type: Object.entries(survByType).map(([type, counts]) => ({
+        test_type: TEST_LABEL[type] || type,
+        ...counts,
+        compliance_pct: counts.total_due > 0 ? ((counts.completed / counts.total_due) * 100).toFixed(1) : "0.0",
+      })),
+    },
+    fitness: fitnessData || {},
+    iod: { iod_count: totalIOD, lost_time_injuries: totalLTI, fatalities: 0, claims_submitted: iodData.reduce((s, r) => s + Number(r.claims_submitted || 0), 0) },
+    drug: { tests_conducted: totalTests, positives: totalPositives, refusals: drugData.reduce((s, r) => s + Number(r.refusals || 0), 0), positivity_rate: totalTests > 0 ? ((totalPositives / totalTests) * 100).toFixed(1) : "0.0" },
+    period_label: period,
+    generated_at: new Date().toISOString(),
+    is_client_pack: true,
+  };
+
+  const res = await fetch("/.netlify/functions/compliance-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Client pack error: ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `client-pack-${(employer?.name || "employer").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-${new Date().toISOString().slice(0,10)}.pdf`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 };
 
 // ─── FINANCE & BILLING ────────────────────────────────────────────────────────
