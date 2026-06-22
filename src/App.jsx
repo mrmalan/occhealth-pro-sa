@@ -5779,7 +5779,8 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
 
   const token = session?.access_token;
-  const db = token ? sbAuth(token) : null;
+  // useMemo keeps db stable — a new object every render would cause useEffect([db]) infinite loops
+  const db = useMemo(() => token ? sbAuth(token) : null, [token]);
 
   // Derived: use live data when available, else mock
   const employers = liveEmployers ?? MOCK_EMPLOYERS;
