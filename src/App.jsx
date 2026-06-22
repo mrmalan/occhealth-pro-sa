@@ -459,6 +459,33 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [selPerson, setSelPerson] = useState(null);
+
+  // First aider register — localStorage per employer
+  const FA_KEY = `oh_firstaid_${employer?.id}`;
+  const [firstAiders, setFirstAiders] = React.useState(() => { try { return JSON.parse(localStorage.getItem(FA_KEY) || "[]"); } catch { return []; } });
+  const [showAddFA, setShowAddFA] = React.useState(false);
+  const [faForm, setFaForm] = React.useState({ name: "", level: "Level 1", cert_number: "", expiry: "" });
+  const saveFirstAiders = (items) => { localStorage.setItem(FA_KEY, JSON.stringify(items)); setFirstAiders(items); };
+  const addFirstAider = () => {
+    if (!faForm.name) return;
+    saveFirstAiders([...firstAiders, { ...faForm, id: crypto.randomUUID() }]);
+    setFaForm({ name: "", level: "Level 1", cert_number: "", expiry: "" });
+    setShowAddFA(false);
+  };
+  const removeFirstAider = (id) => saveFirstAiders(firstAiders.filter(f => f.id !== id));
+
+  // LoGS tracker — localStorage per employer
+  const LOGS_KEY = `oh_logs_${employer?.id}`;
+  const [logsExpiry, setLogsExpiry] = React.useState(() => localStorage.getItem(LOGS_KEY) || "");
+  const [showLogsEdit, setShowLogsEdit] = React.useState(false);
+  const saveLogsExpiry = (val) => { localStorage.setItem(LOGS_KEY, val); setLogsExpiry(val); setShowLogsEdit(false); };
+  const logsStatus = !logsExpiry ? "unknown" : new Date(logsExpiry) < new Date() ? "expired" : new Date(logsExpiry) < new Date(Date.now() + 60*24*3600000) ? "expiring" : "current";
+  const logsColor = logsStatus === "current" ? C.teal : logsStatus === "expiring" ? C.amber : C.red;
+
+  // OHP appointment letter flag
+  const OHP_APT_KEY = `oh_ohpapt_${employer?.id}`;
+  const [ohpAppointed, setOhpAppointed] = React.useState(() => localStorage.getItem(OHP_APT_KEY) === "true");
+  const toggleOhpAppointed = () => { const v = !ohpAppointed; localStorage.setItem(OHP_APT_KEY, String(v)); setOhpAppointed(v); };
   const EMPTY_PERSON = {
     first_name: "", last_name: "", id_number: "", date_of_birth: "",
     gender: "", job_title: "", department: "", site: "",
@@ -641,6 +668,123 @@ const EmployerDetail = ({ employer, persons, db, refreshData, onBack }) => {
           </div>
         </Card>
       ))}
+
+      {/* ── LETTER OF GOOD STANDING ── */}
+      <SectionTitle style={{ marginTop: "1.5rem" }}>Letter of Good Standing</SectionTitle>
+      <Card style={{ marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>LoGS expiry date</div>
+            <div style={{ fontSize: 12, color: C.muted }}>Required for government tenders. Expires annually with COIDA registration.</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {logsExpiry ? (
+              <span style={{ fontSize: 13, fontWeight: 500, color: logsColor }}>
+                {logsStatus === "current" ? "✓ Current" : logsStatus === "expiring" ? "⚠ Expiring soon" : "✕ Expired"} · {new Date(logsExpiry).toLocaleDateString("en-ZA")}
+              </span>
+            ) : (
+              <span style={{ fontSize: 13, color: C.muted }}>Not recorded</span>
+            )}
+            <Btn size="sm" variant="secondary" onClick={() => setShowLogsEdit(v => !v)}>
+              {logsExpiry ? "Update" : "Record"}
+            </Btn>
+          </div>
+        </div>
+        {showLogsEdit && (
+          <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="date" defaultValue={logsExpiry}
+              style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13 }}
+              onChange={e => saveLogsExpiry(e.target.value)} />
+            <Btn size="sm" variant="ghost" onClick={() => setShowLogsEdit(false)}>Cancel</Btn>
+          </div>
+        )}
+      </Card>
+
+      {/* ── OHP APPOINTMENT LETTER ── */}
+      <Card style={{ marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>OHP appointment letter</div>
+            <div style={{ fontSize: 12, color: C.muted }}>Employer must formally appoint the OHP in writing (OHS Act S17).</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: ohpAppointed ? C.teal : C.amber }}>
+              {ohpAppointed ? "✓ On file" : "⚠ Outstanding"}
+            </span>
+            <Btn size="sm" variant="secondary" onClick={toggleOhpAppointed}>
+              {ohpAppointed ? "Mark outstanding" : "Mark on file"}
+            </Btn>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── FIRST AIDER REGISTER ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <SectionTitle style={{ marginBottom: 0 }}>First aider register ({firstAiders.length})</SectionTitle>
+        <Btn size="sm" onClick={() => setShowAddFA(v => !v)}>{showAddFA ? "Cancel" : "+ Add first aider"}</Btn>
+      </div>
+
+      {showAddFA && (
+        <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>NAME *</div>
+              <input value={faForm.name} onChange={e => setFaForm(f => ({...f, name: e.target.value}))} placeholder="Full name"
+                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>LEVEL</div>
+              <select value={faForm.level} onChange={e => setFaForm(f => ({...f, level: e.target.value}))}
+                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option>Level 1</option><option>Level 2</option><option>Level 3</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>CERTIFICATE NUMBER</div>
+              <input value={faForm.cert_number} onChange={e => setFaForm(f => ({...f, cert_number: e.target.value}))} placeholder="e.g. FA2024-001"
+                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.textTert, marginBottom: 3 }}>CERTIFICATE EXPIRY</div>
+              <input type="date" value={faForm.expiry} onChange={e => setFaForm(f => ({...f, expiry: e.target.value}))}
+                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn size="sm" onClick={addFirstAider} disabled={!faForm.name}>Save</Btn>
+            <Btn size="sm" variant="secondary" onClick={() => setShowAddFA(false)}>Cancel</Btn>
+          </div>
+        </Card>
+      )}
+
+      {firstAiders.length === 0 && !showAddFA && (
+        <Card style={{ textAlign: "center", padding: "1.5rem", marginBottom: "1rem" }}>
+          <div style={{ fontSize: 13, color: C.muted }}>No first aiders recorded. OHS Act requires at least 1 per 50 employees per shift.</div>
+        </Card>
+      )}
+
+      {firstAiders.map(fa => {
+        const expired = fa.expiry && new Date(fa.expiry) < new Date();
+        const expiring = fa.expiry && !expired && new Date(fa.expiry) < new Date(Date.now() + 30*24*3600000);
+        return (
+          <Card key={fa.id} style={{ marginBottom: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{fa.name}</div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+                  {fa.level}{fa.cert_number ? ` · ${fa.cert_number}` : ""}
+                  {fa.expiry && <span style={{ marginLeft: 8, color: expired ? C.red : expiring ? C.amber : C.teal }}>
+                    · {expired ? "Expired" : expiring ? "Expiring soon" : "Valid"}: {new Date(fa.expiry).toLocaleDateString("en-ZA")}
+                  </span>}
+                </div>
+              </div>
+              <button onClick={() => removeFirstAider(fa.id)}
+                style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, opacity: 0.6 }}>✕</button>
+            </div>
+          </Card>
+        );
+      })}
+
     </div>
   );
 };
@@ -3603,6 +3747,18 @@ const EmployerPortal = ({ session }) => {
 
   const complianceColor = overallCompliance === null ? C.textTert : overallCompliance >= 90 ? C.teal : overallCompliance >= 70 ? C.amber : C.red;
 
+  // LTIFR — Lost Time Injury Frequency Rate = (LTIs × 200,000) / hours worked
+  // 200,000 = 100 employees × 2,000 hours/year (SA standard base)
+  // We estimate hours from employee count if available; show as "per 200,000 hrs"
+  const ltifr = (() => {
+    if (totalLTI === 0) return 0;
+    // If we don't have hours worked, approximate: assume 50 employees × 2000hrs × period_months/12
+    const months = Number(period) || 6;
+    const estEmployees = 50; // conservative placeholder — OHP can update
+    const estHours = estEmployees * 2000 * (months / 12);
+    return ((totalLTI * 200000) / estHours).toFixed(2);
+  })();
+
   const PERIOD_OPTIONS = [
     { value: "3", label: "Last 3 months" },
     { value: "6", label: "Last 6 months" },
@@ -3876,6 +4032,18 @@ const EmployerPortal = ({ session }) => {
             {totalRefusals > 0 && <span style={{ color: C.amber }}> · {totalRefusals} refusal{totalRefusals !== 1 ? "s" : ""}</span>}
           </div>
           {drugMonths.length > 0 && <div style={{ marginTop: 10 }}><MonthBars data={drugMonths} valueKey="tests_conducted" color={C.teal} height={36} /></div>}
+        </Card>
+
+        {/* LTIFR */}
+        <Card>
+          <div style={{ fontSize: 11, color: C.textTert, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>LTIFR</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: Number(ltifr) === 0 ? C.teal : Number(ltifr) < 2 ? C.amber : C.red, lineHeight: 1 }}>
+            {ltifr}
+          </div>
+          <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>
+            lost time injury frequency rate
+            <div style={{ marginTop: 2, color: C.textTert }}>per 200,000 hrs worked · {totalLTI} LTI{totalLTI !== 1 ? "s" : ""} in period</div>
+          </div>
         </Card>
       </div>
 
@@ -4451,6 +4619,16 @@ const FinanceBilling = ({ session }) => {
 
   const [tab, setTab] = useState("invoices");
   const [period, setPeriod] = useState("month");
+
+  // Draft invoices from flowboard auto-capture
+  const [draftInvoices, setDraftInvoices] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem("oh_draft_invoices") || "[]"); } catch { return []; }
+  });
+  const dismissDraft = (id) => {
+    const updated = draftInvoices.filter(d => d.id !== id);
+    localStorage.setItem("oh_draft_invoices", JSON.stringify(updated));
+    setDraftInvoices(updated);
+  };
   const [waModal, setWaModal] = useState(null); // {template, recipient}
 
   // Invoice state
@@ -4697,6 +4875,9 @@ const FinanceBilling = ({ session }) => {
       {/* Tabs */}
       <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: "1.25rem" }}>
         <button style={TAB_STYLE(tab === "invoices")} onClick={() => setTab("invoices")}>Invoices</button>
+        <button style={TAB_STYLE(tab === "drafts")} onClick={() => setTab("drafts")}>
+          {draftInvoices.length > 0 ? `Drafts (${draftInvoices.length})` : "Drafts"}
+        </button>
         <button style={TAB_STYLE(tab === "exports")} onClick={() => setTab("exports")}>Xero / Sage export</button>
         <button style={TAB_STYLE(tab === "whatsapp")} onClick={() => setTab("whatsapp")}>WhatsApp</button>
       </div>
@@ -4824,6 +5005,37 @@ const FinanceBilling = ({ session }) => {
       )}
 
       {/* ── EXPORTS TAB ──────────────────────────────── */}
+      {tab === "drafts" && (
+        <div>
+          <div style={{ fontSize: 13, color: C.textSub, marginBottom: "1rem" }}>
+            Sessions marked complete in the flowboard automatically appear here as draft invoices. Review and create invoices from the Invoices tab.
+          </div>
+          {draftInvoices.length === 0 ? (
+            <Card style={{ textAlign: "center", padding: "2rem" }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>🧾</div>
+              <div style={{ fontSize: 13, color: C.muted }}>No drafts yet. Mark a flowboard session as complete to auto-generate a draft invoice.</div>
+            </Card>
+          ) : draftInvoices.map(d => (
+            <Card key={d.id} style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{d.employer_name}</div>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{d.description}</div>
+                  <div style={{ fontSize: 11, color: C.textTert, marginTop: 2 }}>
+                    {d.session_date}{d.duration_minutes ? " · " + d.duration_minutes + " min" : ""}{d.practitioner ? " · " + d.practitioner : ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <Badge color="amber">Draft</Badge>
+                  <button onClick={() => dismissDraft(d.id)}
+                    style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, opacity: 0.6 }} title="Dismiss">✕</button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       {tab === "exports" && (
         <div>
           <Card style={{ marginBottom: "1rem" }}>
@@ -4963,12 +5175,31 @@ const OccFlowboard = () => {
     const now = new Date().toTimeString().slice(0,5);
     setAppts(prev => prev.map(a => {
       if (a.id !== id) return a;
-      return {
+      const updated = {
         ...a, status,
         arrived: status !== "scheduled" ? true : a.arrived,
         startedAt: status === "in_progress" && !a.startedAt ? now : a.startedAt,
         endedAt:   status === "done" && !a.endedAt ? now : a.endedAt,
       };
+      // Auto-create draft invoice when session marked done
+      if (status === "done" && a.status !== "done") {
+        try {
+          const existing = JSON.parse(localStorage.getItem("oh_draft_invoices") || "[]");
+          const draft = {
+            id: crypto.randomUUID(),
+            created_at: new Date().toISOString(),
+            employer_name: a.employer || "Unknown employer",
+            session_date: new Date().toISOString().slice(0, 10),
+            practitioner: a.vet || "",
+            duration_minutes: a.dur || 60,
+            description: ("Clinic session " + (a.type ? "(" + a.type + ")" : "") + (a.patient ? " - " + a.patient : "")).trim(),
+            status: "draft",
+            amount: null,
+          };
+          localStorage.setItem("oh_draft_invoices", JSON.stringify([draft, ...existing.slice(0, 49)]));
+        } catch(e) { console.warn("Draft invoice error", e); }
+      }
+      return updated;
     }));
   };
 
@@ -6564,21 +6795,150 @@ const CPDTracker = ({ session, isCPDFree, onUpgrade }) => {
   );
 };
 
+
+// ─── DOL INSPECTION READINESS CHECKLIST ──────────────────────────────────────
+const DOL_CHECKLIST_ITEMS = [
+  { id: "iod_register",    category: "IOD & COIDA",      label: "IOD register current (incidents logged within 7 days)", screen: "iod",          tip: "All workplace injuries must be logged within 7 days of occurrence." },
+  { id: "wcl2_available",  category: "IOD & COIDA",      label: "W.Cl.2 forms generated for all IODs",                  screen: "iod",          tip: "W.Cl.2 must be completed by the employer within 7 days of an IOD." },
+  { id: "coida_registered",category: "IOD & COIDA",      label: "COIDA registration on file (COIDA ref number)",        screen: "employers",    tip: "Employer must be registered with the Compensation Fund, RMA or FEM." },
+  { id: "logs_current",    category: "IOD & COIDA",      label: "Letter of Good Standing current (not expired)",        screen: "employers",    tip: "LoGS expires annually. Required for government tenders and contracts." },
+  { id: "surveillance",    category: "Surveillance",     label: "Health surveillance up to date (≥80% compliance)",     screen: "surveillance", tip: "OHS Act requires periodic surveillance for employees exposed to hazards." },
+  { id: "fitness_certs",   category: "Surveillance",     label: "Fitness certificates current for all employees",       screen: "fitness",      tip: "All employees in hazardous roles must have a current fitness certificate." },
+  { id: "drug_testing",    category: "Drug & alcohol",   label: "Drug & alcohol testing programme active",              screen: "drug",         tip: "Employers in safety-critical industries must maintain a testing programme." },
+  { id: "drug_records",    category: "Drug & alcohol",   label: "Drug test chain-of-custody records on file",           screen: "drug",         tip: "CCMA requires chain-of-custody documentation to support disciplinary action." },
+  { id: "first_aiders",    category: "First aid",        label: "First aider register current (certs not expired)",     screen: "employers",    tip: "OHS Act requires at least 1 first aider per 50 employees on each shift." },
+  { id: "ohp_appointed",   category: "Appointments",     label: "OHP appointment letter signed by employer",            screen: "settings",     tip: "The employer must formally appoint the OHP in writing (OHS Act S17)." },
+  { id: "stock_calibrated",category: "Equipment",        label: "Audiometer & spirometer calibrated (cert on file)",    screen: "stock",        tip: "Instruments used for surveillance must have current calibration certificates." },
+  { id: "risk_assessment",  category: "Documentation",   label: "Risk assessment / hazard profile on file per employer", screen: "employers",   tip: "Every employer must have a current documented risk assessment." },
+];
+
+const DOL_LS_KEY = "oh_dol_checklist";
+const loadDoLStatus = () => { try { return JSON.parse(localStorage.getItem(DOL_LS_KEY) || "{}"); } catch { return {}; } };
+const saveDoLStatus = (s) => localStorage.setItem(DOL_LS_KEY, JSON.stringify(s));
+
+const DoLChecklist = ({ navigate }) => {
+  const { liveIODs, liveEmployers, liveSurveillance, liveFitnessCerts, liveDrugTests } = useData();
+  const [manual, setManual] = React.useState(loadDoLStatus);
+
+  const toggleManual = (id) => {
+    const updated = { ...manual, [id]: !manual[id] };
+    setManual(updated);
+    saveDoLStatus(updated);
+  };
+
+  // Auto-derive status from live data where possible
+  const autoStatus = {
+    iod_register:    liveIODs?.length > 0,
+    wcl2_available:  liveIODs?.length > 0,
+    coida_registered:liveEmployers?.some(e => e.coida_ref),
+    surveillance:    (() => {
+      if (!liveSurveillance || liveSurveillance.length === 0) return false;
+      const due = liveSurveillance.length;
+      const done = liveSurveillance.filter(s => s.status === "completed").length;
+      return due > 0 && (done / due) >= 0.8;
+    })(),
+    fitness_certs: (() => {
+      if (!liveFitnessCerts || liveFitnessCerts.length === 0) return false;
+      const today = new Date().toISOString().slice(0, 10);
+      return liveFitnessCerts.every(f => !f.superseded && f.valid_until >= today);
+    })(),
+    drug_testing: liveDrugTests?.length > 0,
+    drug_records: liveDrugTests?.length > 0,
+    stock_calibrated: false, // always manual — calibration data not in context
+  };
+
+  const getStatus = (item) => {
+    if (autoStatus[item.id] !== undefined) return autoStatus[item.id] ? "green" : "amber";
+    return manual[item.id] ? "green" : "amber";
+  };
+
+  const categories = [...new Set(DOL_CHECKLIST_ITEMS.map(i => i.category))];
+  const totalGreen = DOL_CHECKLIST_ITEMS.filter(i => getStatus(i) === "green").length;
+  const total = DOL_CHECKLIST_ITEMS.length;
+  const pct = Math.round((totalGreen / total) * 100);
+  const overallColor = pct >= 90 ? C.teal : pct >= 70 ? C.amber : C.red;
+  const grade = pct >= 90 ? "A" : pct >= 75 ? "B" : pct >= 60 ? "C" : pct >= 40 ? "D" : "F";
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>DoL Inspection Readiness</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.muted }}>If an inspector walked in today, could you produce these records?</p>
+        </div>
+        <div style={{ textAlign: "center", background: "#fff", border: `2px solid ${overallColor}`, borderRadius: 12, padding: "10px 20px" }}>
+          <div style={{ fontSize: 32, fontWeight: 800, color: overallColor, lineHeight: 1 }}>{grade}</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{totalGreen}/{total} items</div>
+        </div>
+      </div>
+
+      {/* Overall bar */}
+      <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, padding: "1rem 1.25rem", marginBottom: "1.25rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.muted, marginBottom: 6 }}>
+          <span>Overall readiness</span><span style={{ fontWeight: 600, color: overallColor }}>{pct}%</span>
+        </div>
+        <div style={{ height: 8, borderRadius: 99, background: "#e5e7eb" }}>
+          <div style={{ height: "100%", borderRadius: 99, background: overallColor, width: `${pct}%`, transition: "width 0.4s" }} />
+        </div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
+          {pct >= 90 ? "Well prepared. Keep records current." : pct >= 70 ? "Good progress — address amber items before any inspection." : "Significant gaps — prioritise red/amber items urgently."}
+        </div>
+      </div>
+
+      {/* Checklist by category */}
+      {categories.map(cat => (
+        <div key={cat} style={{ marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted, marginBottom: 8 }}>{cat}</div>
+          {DOL_CHECKLIST_ITEMS.filter(i => i.category === cat).map(item => {
+            const status = getStatus(item);
+            const isAuto = autoStatus[item.id] !== undefined;
+            return (
+              <div key={item.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${status === "green" ? "#bbf7d0" : "#fde68a"}`, padding: "0.875rem 1rem", marginBottom: 6, display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ width: 20, height: 20, borderRadius: "50%", background: status === "green" ? "#dcfce7" : "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                  <span style={{ fontSize: 12 }}>{status === "green" ? "✓" : "!"}</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: C.text, marginBottom: 2 }}>{item.label}</div>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>{item.tip}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                  {!isAuto && (
+                    <button onClick={() => toggleManual(item.id)}
+                      style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, border: `1px solid ${C.border}`, background: status === "green" ? "#dcfce7" : "#fff", color: status === "green" ? "#15803d" : C.muted, cursor: "pointer" }}>
+                      {status === "green" ? "✓ Done" : "Mark done"}
+                    </button>
+                  )}
+                  {isAuto && <span style={{ fontSize: 11, color: C.muted, fontStyle: "italic" }}>auto</span>}
+                  <button onClick={() => navigate(item.screen)}
+                    style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, border: `1px solid ${C.tealMid}`, background: "transparent", color: C.teal, cursor: "pointer" }}>
+                    Go →
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV_OHP = [
-  { id: "dashboard",  label: "Dashboard",    icon: "⊞" },
-  { id: "flowboard",  label: "Flowboard",    icon: "📅" },
-  { id: "employers",  label: "Employers",    icon: "🏭" },
-  { id: "encounters", label: "Encounters",   icon: "📋" },
-  { id: "surveillance",label: "Surveillance",icon: "📊" },
-  { id: "fitness",    label: "Fitness certs",icon: "✅" },
-  { id: "iod",        label: "IOD register", icon: "⚠" },
-  { id: "drug",       label: "Drug testing", icon: "🧪" },
-  { id: "stock",      label: "Stock & cal.", icon: "📦" },
-  { id: "portal",     label: "Employer view",icon: "🏢" },
-  { id: "cpd",        label: "CPD tracker",  icon: "🎓" },
-  { id: "finance",    label: "Finance",      icon: "💳" },
-  { id: "settings",   label: "Settings",     icon: "⚙" },
+  { id: "dashboard",    label: "Dashboard",    icon: "⊞" },
+  { id: "flowboard",    label: "Flowboard",    icon: "📅" },
+  { id: "employers",    label: "Employers",    icon: "🏭" },
+  { id: "encounters",   label: "Encounters",   icon: "📋" },
+  { id: "surveillance", label: "Surveillance", icon: "📊" },
+  { id: "fitness",      label: "Fitness certs",icon: "✅" },
+  { id: "iod",          label: "IOD register", icon: "⚠" },
+  { id: "drug",         label: "Drug testing", icon: "🧪" },
+  { id: "stock",        label: "Stock & cal.", icon: "📦" },
+  { id: "dol_checklist",label: "DoL readiness",icon: "🔍" },
+  { id: "portal",       label: "Employer view",icon: "🏢" },
+  { id: "cpd",          label: "CPD tracker",  icon: "🎓" },
+  { id: "finance",      label: "Finance",      icon: "💳" },
+  { id: "settings",     label: "Settings",     icon: "⚙" },
 ];
 
 const NAV_EMPLOYER = [
@@ -6858,6 +7218,7 @@ export default function App() {
               {screen === "finance"      && <FinanceBilling session={session} />}
               {screen === "settings"     && <Settings session={session} />}
               {screen === "cpd"          && <CPDTracker session={session} isCPDFree={isCPDFree} onUpgrade={handleUpgradeToPro} />}
+              {screen === "dol_checklist" && <DoLChecklist navigate={navigate} />}
             </div>
           </div>
         </div>
