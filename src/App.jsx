@@ -2046,7 +2046,7 @@ const Surveillance = () => {
       const [profRes, enrolRes, evtRes] = await Promise.all([
         db.from("hazard_profile").select("*"),
         db.from("person_hazard").select("*"),
-        db.from("surveillance_event").select("order=scheduled_date.asc"),
+        db.from("surveillance_event").select().order("scheduled_date", {ascending:true}),
       ]);
       if (profRes.data?.length) setProfiles(profRes.data);
       if (enrolRes.data) setEnrolments(enrolRes.data);
@@ -2658,10 +2658,10 @@ const IODRegister = () => {
   // Load live IOD data + COIDA claims from Supabase on mount
   useEffect(() => {
     if (!db || USE_MOCK) return;
-    db.from("iod_incident").select("order=incident_at.desc&limit=200").then(res => {
+    db.from("iod_incident").select().order("incident_at", {ascending:false}).limit(200).then(res => {
       if (res.data?.length) setLiveIODs(res.data);
     }).catch(() => {});
-    db.from("coida_claim").select("order=created_at.desc&limit=500").then(res => {
+    db.from("coida_claim").select().order("created_at", {ascending:false}).limit(500).then(res => {
       if (res.data?.length) {
         const map = {};
         res.data.forEach(c => { map[c.iod_incident_id] = c; });
@@ -3132,7 +3132,7 @@ const DrugTesting = () => {
   // Load live drug test data from Supabase on mount
   useEffect(() => {
     if (!db || USE_MOCK) return;
-    db.from("drug_test").select("order=tested_at.desc&limit=200").then(res => {
+    db.from("drug_test").select().order("tested_at", {ascending:false}).limit(200).then(res => {
       if (res.data?.length) setLiveTests(res.data);
     }).catch(() => {});
   }, [db]);
@@ -3883,7 +3883,7 @@ const FinanceBilling = ({ session }) => {
       ]);
       return;
     }
-    db.from("invoice").select("order=issue_date.desc&limit=200").then(res => {
+    db.from("invoice").select().order("issue_date", {ascending:false}).limit(200).then(res => {
       if (res.data?.length) setInvoices(res.data);
     }).catch(() => {});
   }, [db, employers[0]?.id]);
@@ -5074,7 +5074,7 @@ const Settings = ({ session }) => {
 
   useEffect(() => {
     if (!db) { setPracLoading(false); return; }
-    db.from("practitioner").select("order=created_at.asc&limit=1").then(res => {
+    db.from("practitioner").select().order("created_at", {ascending:true}).limit(1).then(res => {
       if (res.data?.[0]) {
         const p = res.data[0];
         setPrac(p);
