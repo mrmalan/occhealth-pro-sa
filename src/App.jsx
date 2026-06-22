@@ -973,26 +973,70 @@ const AILetters = ({ enc, person, employer, session }) => {
     setGenerating(type);
     try {
       const typeLabel = LETTER_TYPES.find(t => t.value === type)?.label || type;
-      const systemPrompt = `You are an occupational health practitioner assistant. Generate a professional ${typeLabel} letter for South Africa based on the clinical notes provided. Use formal medical letter format. Include date, patient details, practitioner details. Do not add clinical information not present in the notes. Output plain text only — no markdown, no asterisks.`;
+      const pracName   = enc.signed_by || meta.full_name || "";
+      const pracSANC   = meta.sanc_number || "";
+      const pracQual   = meta.qualification || "B.Cur OHN";
+      const pracAddr   = meta.practice_address || meta.tenant_name || "OccHealth Pro SA";
+      const encDate    = enc.encounter_at ? new Date(enc.encounter_at).toLocaleDateString("en-ZA", { day:"2-digit", month:"long", year:"numeric" }) : "";
+      const today      = new Date().toLocaleDateString("en-ZA", { day:"2-digit", month:"long", year:"numeric" });
 
       const contextLines = [
-        `Patient: ${person?.first_name || ""} ${person?.last_name || ""}`,
-        `ID: ${person?.id_number || "not provided"}`,
-        `DOB: ${person?.date_of_birth || "not provided"}`,
-        `Occupation: ${person?.job_title || "not provided"}`,
+        `Patient full name: ${person?.first_name || ""} ${person?.last_name || ""}`,
+        `Patient ID number: ${person?.id_number || "not provided"}`,
+        `Employee number: ${person?.employee_number || "not provided"}`,
+        `Date of birth: ${person?.date_of_birth || "not provided"}`,
+        `Occupation / job title: ${person?.job_title || "not provided"}`,
         `Employer: ${employer?.name || "not provided"}`,
-        `Encounter date: ${enc.encounter_at ? new Date(enc.encounter_at).toLocaleDateString("en-ZA") : ""}`,
+        `Encounter date: ${encDate}`,
         `Encounter type: ${enc.encounter_type?.replace(/_/g," ") || ""}`,
+        enc.subjective ? `Subjective: ${enc.subjective}` : "",
+        enc.objective  ? `Objective: ${enc.objective}`  : "",
         enc.assessment ? `Assessment: ${enc.assessment}` : "",
-        enc.plan ? `Plan: ${enc.plan}` : "",
-        `Practitioner: ${enc.signed_by || meta.full_name || ""}`,
+        enc.plan       ? `Plan: ${enc.plan}`             : "",
+        `Practitioner name: ${pracName}`,
+        `Practitioner qualification: ${pracQual}`,
+        `SANC registration number: ${pracSANC}`,
+        `Practice / address: ${pracAddr}`,
+        `Date of issue: ${today}`,
       ].filter(Boolean).join("\n");
 
       const typeInstruction = {
-        referral: "Write a specialist referral letter. Include reason for referral, clinical summary, and specific request.",
-        sick_note: "Write a medical certificate of illness/incapacity. State the period of incapacity and return-to-work date if known. Keep it concise and formal.",
-        rtw: "Write a return-to-work certificate. State that the patient is fit to return, with any restrictions or modifications required. Reference the encounter date.",
+        referral: `Write a specialist referral letter on behalf of the occupational health practitioner. Include:
+- Practitioner name, qualification, SANC number, practice address, date
+- Patient name, ID number, date of birth, occupation, employer
+- Reason for referral and specific clinical question
+- Relevant clinical summary (from assessment and plan only — do not add information not in the notes)
+- Specific request to the specialist
+Output plain text only. No markdown. No asterisks.`,
+
+        sick_note: `Write a medical certificate of illness/incapacity compliant with BCEA Section 23(2) and the Medical and Dental Professions Board Rule 15. The certificate must include ALL of the following elements in this order:
+
+1. Practitioner name, full address/practice, qualification, and SANC registration number (header)
+2. Date of issue
+3. Patient full name, ID number, employee number (if provided), date of birth
+4. Employer name and occupation
+5. That the certificate is issued based on personal examination of the patient on the encounter date
+6. A description of the condition in layman's terms (based on assessment — do not fabricate or add clinical detail not in the notes; if assessment is vague, use the encounter type)
+7. Whether the patient is totally unfit OR fit for light/modified duties only (infer from plan if stated, otherwise state totally unfit)
+8. The exact recommended period of sick leave: from encounter date, duration from plan if stated, otherwise leave blank with "[FROM] to [TO] — complete as appropriate"
+9. Expected return-to-work date (if determinable from plan)
+10. Legal authority line: "Issued in terms of BCEA Section 23(2) by a registered nursing practitioner registered with the South African Nursing Council."
+11. Signature block: practitioner name in full (printed), signature line, SANC number, date, qualification
+
+Keep it formal and concise. Output plain text only. No markdown. No asterisks.`,
+
+        rtw: `Write a return-to-work certificate on behalf of the occupational health practitioner. Include:
+- Practitioner name, qualification, SANC number, practice address, date of issue
+- Patient full name, ID number, employee number, occupation, employer
+- Statement that the patient was examined on the encounter date and is now fit to return to work
+- Any restrictions or modifications required (from plan — if none stated, declare fully fit)
+- Effective date of return to work
+- Legal authority: "Issued in terms of BCEA Section 23(2) by a registered nursing practitioner registered with the South African Nursing Council."
+- Signature block with SANC number
+Output plain text only. No markdown. No asterisks.`,
       }[type] || "";
+
+      const systemPrompt = `You are an occupational health practitioner assistant generating legally compliant South African medical certificates and letters. Generate ONLY what is supported by the clinical notes provided. Do NOT add, invent, or infer clinical information not explicitly present in the notes. Output plain text only — no markdown formatting, no asterisks, no bullet points in the document body.`;
 
       const res = await fetch("/.netlify/functions/claude", {
         method: "POST",
@@ -1000,7 +1044,7 @@ const AILetters = ({ enc, person, employer, session }) => {
         body: JSON.stringify({
           system: systemPrompt,
           messages: [{ role: "user", content: `${typeInstruction}\n\nClinical context:\n${contextLines}` }],
-          max_tokens: 600,
+          max_tokens: 800,
         }),
       });
       const data = await res.json();
