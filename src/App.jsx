@@ -5917,22 +5917,19 @@ export default function App() {
   const dataCtx = { employers, persons, encounters, fitnessCerts, db, token, refreshData, dataLoading,
     setLiveEncounters, setLiveFitnessCerts, setLiveEmployers, setLivePersons, iodCount };
 
-  const renderScreen = (s) => {
-    switch(s) {
-      case "dashboard":    return <Dashboard session={session} navigate={navigate} />;
-      case "flowboard":    return <OccFlowboard />;
-      case "employers":    return <Employers navigate={navigate} />;
-      case "encounters":   return <Encounters navigate={navigate} session={session} />;
-      case "surveillance": return <Surveillance />;
-      case "fitness":      return <FitnessCerts />;
-      case "iod":          return <IODRegister />;
-      case "drug":         return <DrugTesting />;
-      case "stock":        return <StockCalibration />;
-      case "portal":       return <EmployerPortal session={session} />;
-      case "finance":      return <FinanceBilling session={session} />;
-      case "settings":     return <Settings session={session} />;
-      default:             return <div style={{ color: C.textSub }}>Coming soon</div>;
-    }
+  const screens = {
+    dashboard:    <Dashboard session={session} navigate={navigate} />,
+    flowboard:    <OccFlowboard />,
+    employers:    <Employers navigate={navigate} />,
+    encounters:   <Encounters navigate={navigate} session={session} />,
+    surveillance: <Surveillance />,
+    fitness:      <FitnessCerts />,
+    iod:          <IODRegister />,
+    drug:         <DrugTesting />,
+    stock:        <StockCalibration />,
+    portal:       <EmployerPortal session={session} />,
+    finance:      <FinanceBilling session={session} />,
+    settings:     <Settings session={session} />,
   };
 
   const nav = view === "employer" ? NAV_EMPLOYER : NAV_OHP;
@@ -5951,7 +5948,7 @@ export default function App() {
               </div>
             )}
             <div style={{ flex: 1, padding: "1.5rem", overflowY: "auto", maxWidth: 800 }}>
-              {renderScreen(screen)}
+              {screens[screen] || <div style={{ color: C.textSub }}>Coming soon</div>}
             </div>
           </div>
         </div>
