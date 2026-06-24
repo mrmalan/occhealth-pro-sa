@@ -482,26 +482,34 @@ async function generateClientPack(data) {
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
+import { uploadDoc } from "./_upload_doc.js";
+
 export async function handler(event) {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
   try {
     const data = JSON.parse(event.body);
-    const isClientPack = !!data.is_client_pack;
-    const pdf = isClientPack ? await generateClientPack(data) : await generateReport(data);
-    const empName = (data.employer?.name || "employer").replace(/[^a-z0-9]/gi, "-").toLowerCase();
-    const filename = isClientPack
-      ? `client-pack-${empName}-${new Date().toISOString().slice(0,10)}.pdf`
-      : `compliance-report-${empName}.pdf`;
+    const pdfBuffer = await generateReport(data);
+    const isClientPack = data.is_client_pack;
+    const prefix = isClientPack ? "ClientPack" : "ComplianceReport";
+    const folder = isClientPack ? "client_pack" : "compliance_report";
+    const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
+    const nameStr = (data.employer?.name || "employer").slice(0,16).replace(/[^a-z0-9]/gi,"-").toLowerCase();
+    const filename = `${prefix}-${dateStr}-${nameStr}.pdf`;
+    const storagePath = await uploadDoc(pdfBuffer, folder, filename);
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        ...(storagePath ? { "X-Storage-Path": storagePath } : {}),
       },
-      body: pdf.toString("base64"),
+      body: pdfBuffer.toString("base64"),
       isBase64Encoded: true,
     };
   } catch (err) {
+    console.error("Compliance report error:", err);
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 }

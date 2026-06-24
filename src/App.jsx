@@ -1327,10 +1327,22 @@ const EncounterDetail = ({ enc, onBack, session }) => {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("PDF generation failed");
+      const storagePath = res.headers.get("X-Storage-Path");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+      if (storagePath && session?.access_token) {
+        const p = persons.find(x => x.id === fc.person_id);
+        await saveDocLog(session.access_token, {
+          entity_type: "fitness_cert", entity_id: fc.id,
+          doc_type: "fitness_cert",
+          doc_label: `Fitness Cert — ${p ? p.first_name + " " + p.last_name : ""} — valid to ${fc.valid_until}`,
+          storage_path: storagePath,
+          generated_by: meta.practitioner_name || meta.full_name || "",
+          person_id: fc.person_id,
+        });
+      }
     } catch(e) {
       alert("Failed to generate certificate: " + e.message);
     }
@@ -2604,7 +2616,7 @@ const Surveillance = () => {
   );
 };
 
-const FitnessCerts = () => {
+const FitnessCerts = ({ session }) => {
   const { fitnessCerts, persons, employers } = useData();
   const [printing, setPrinting] = useState(null); // fc.id being printed
   const [statusFilter, setStatusFilter] = useState("all");
@@ -2643,10 +2655,22 @@ const FitnessCerts = () => {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("PDF generation failed");
+      const storagePath = res.headers.get("X-Storage-Path");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+      if (storagePath && session?.access_token) {
+        const p = persons.find(x => x.id === fc.person_id);
+        await saveDocLog(session.access_token, {
+          entity_type: "fitness_cert", entity_id: fc.id,
+          doc_type: "fitness_cert",
+          doc_label: `Fitness Cert — ${p ? p.first_name + " " + p.last_name : ""} — valid to ${fc.valid_until}`,
+          storage_path: storagePath,
+          generated_by: meta?.practitioner_name || meta?.full_name || "",
+          person_id: fc.person_id,
+        });
+      }
     } catch(e) { alert("Failed to generate certificate: " + e.message); }
     setPrinting(null);
   };
@@ -2795,6 +2819,7 @@ const FitnessCerts = () => {
               </div>
             </div>
             <div>
+              <DocLogPanel entityId={fc.id} session={session} />
               <Btn size="sm" variant="ghost" onClick={() => printCert(fc)} disabled={printing === fc.id}>
                 {printing === fc.id ? "…" : "🖨 Print"}
               </Btn>
@@ -3488,6 +3513,33 @@ const IODRegister = ({ session }) => {
                 // Open in new window for print/copy
                 const w = window.open("", "_blank");
                 w.document.write(`<pre style="font-family:Georgia,serif;font-size:14px;line-height:1.8;padding:2rem;max-width:700px;margin:auto">${letter}</pre><script>window.print()<\/script>`);
+                // Save letter text to Storage as .txt
+                if (letter && token) {
+                  try {
+                    const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
+                    const nameStr = (p?.last_name || "unknown").slice(0,12).replace(/[^a-z0-9]/gi,"-");
+                    const filename = `CoveringLetter-${dateStr}-${nameStr}.txt`;
+                    const uploadRes = await fetch(`${SUPABASE_URL}/storage/v1/object/documents/covering_letter/${filename}`, {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "text/plain",
+                        "x-upsert": "true",
+                      },
+                      body: letter,
+                    });
+                    if (uploadRes.ok) {
+                      await saveDocLog(token, {
+                        entity_type: "iod_incident", entity_id: iod.id,
+                        doc_type: "covering_letter",
+                        doc_label: `COIDA Covering Letter — ${p ? p.first_name + " " + p.last_name : ""} — ${new Date().toLocaleDateString("en-ZA")}`,
+                        storage_path: `covering_letter/${filename}`,
+                        generated_by: meta.practitioner_name || meta.full_name || "",
+                        person_id: iod.person_id, employer_id: iod.employer_id,
+                      });
+                    }
+                  } catch(e) { console.warn("Letter storage failed:", e); }
+                }
               } catch(e) { alert("Letter generation failed: " + e.message); }
               setGeneratingId(null);
             }}>
@@ -3502,8 +3554,9 @@ const IODRegister = ({ session }) => {
   );
 };
 
-const DrugTesting = () => {
+const DrugTesting = ({ session }) => {
   const { persons, employers, db } = useData();
+  const meta = session?.user?.user_metadata || {};
   const [generatingId, setGeneratingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3630,10 +3683,22 @@ const DrugTesting = () => {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("PDF generation failed");
+      const storagePath = res.headers.get("X-Storage-Path");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+      if (storagePath && session?.access_token) {
+        const p = persons.find(x => x.id === dt.person_id);
+        await saveDocLog(session.access_token, {
+          entity_type: "drug_test", entity_id: dt.id,
+          doc_type: "drug_test_cert",
+          doc_label: `Drug Test Cert — ${p ? p.first_name + " " + p.last_name : ""} — ${dt.tested_at ? new Date(dt.tested_at).toLocaleDateString("en-ZA") : ""}`,
+          storage_path: storagePath,
+          generated_by: meta?.practitioner_name || meta?.full_name || "",
+          person_id: dt.person_id, employer_id: dt.employer_id,
+        });
+      }
     } catch(e) {
       alert("Failed to generate certificate: " + e.message);
     }
@@ -3771,6 +3836,7 @@ const DrugTesting = () => {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
               <Badge color={dt.result === "negative" ? "teal" : dt.result === "positive" ? "red" : "amber"}>{dt.result}</Badge>
+              <DocLogPanel entityId={dt.id} session={session} />
               <Btn size="sm" variant="ghost" onClick={() => printCert(dt)} disabled={generatingId === dt.id}>
                 {generatingId === dt.id ? "Generating..." : "Certificate"}
               </Btn>
@@ -3964,6 +4030,7 @@ const EmployerPortal = ({ session }) => {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`Report error: ${res.status}`);
+      const storagePath = res.headers.get("X-Storage-Path");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -3971,6 +4038,16 @@ const EmployerPortal = ({ session }) => {
       a.download = `compliance-report-${(selEmployer?.name || "employer").replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
+      if (storagePath && session?.access_token) {
+        await saveDocLog(session.access_token, {
+          entity_type: "employer", entity_id: selEmployer?.id,
+          doc_type: "compliance_report",
+          doc_label: `OHP Compliance Report — ${selEmployer?.name || ""} — ${periodLabel}`,
+          storage_path: storagePath,
+          generated_by: session?.user?.user_metadata?.practitioner_name || "",
+          employer_id: selEmployer?.id,
+        });
+      }
     } catch(e) {
       alert("Report generation failed: " + e.message);
     }
@@ -4766,6 +4843,7 @@ const generateClientPack = async (employer, session, survData, fitnessData, iodD
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Client pack error: ${res.status}`);
+  const storagePath = res.headers.get("X-Storage-Path");
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -4773,6 +4851,16 @@ const generateClientPack = async (employer, session, survData, fitnessData, iodD
   a.download = `client-pack-${(employer?.name || "employer").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-${new Date().toISOString().slice(0,10)}.pdf`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
+  if (storagePath && session?.access_token) {
+    await saveDocLog(session.access_token, {
+      entity_type: "employer", entity_id: employer?.id,
+      doc_type: "client_pack",
+      doc_label: `Client Pack — ${employer?.name || ""} — ${new Date().toLocaleDateString("en-ZA")}`,
+      storage_path: storagePath,
+      generated_by: session?.user?.user_metadata?.practitioner_name || "",
+      employer_id: employer?.id,
+    });
+  }
 };
 
 // ─── FINANCE & BILLING ────────────────────────────────────────────────────────
