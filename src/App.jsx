@@ -7790,6 +7790,180 @@ const WellnessDay = ({ session }) => {
     </div>
   );
 };
+
+// ─── SASOHN HUB ──────────────────────────────────────────────────────────────
+const CATEGORY_META = {
+  cpd_event:    { label: "CPD Event",      color: "#0F6E56", bg: "#E1F5EE" },
+  regulatory:   { label: "Regulatory",     color: "#b45309", bg: "#fef3c7" },
+  chapter_news: { label: "Chapter News",   color: "#1d4ed8", bg: "#dbeafe" },
+  job_opportunity:{ label: "Opportunity",  color: "#7c3aed", bg: "#ede9fe" },
+  conference:   { label: "Conference",     color: "#dc2626", bg: "#fee2e2" },
+  general:      { label: "General",        color: "#6b7280", bg: "#f3f4f6" },
+};
+
+const SasohnHub = ({ session }) => {
+  const { db } = useData();
+  const [notices, setNotices] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [filter, setFilter] = React.useState("all");
+  const [expanded, setExpanded] = React.useState(null);
+  const [showPost, setShowPost] = React.useState(false);
+  const [postForm, setPostForm] = React.useState({ title: "", body: "", category: "general", event_date: "", link: "" });
+  const [posting, setPosting] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/sasohn_notice?order=pinned.desc,created_at.desc&limit=50`, {
+        headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${session?.access_token || SUPABASE_ANON}` }
+      });
+      if (res.ok) setNotices(await res.json());
+    } catch(e) { console.warn("SASOHN Hub load error:", e); }
+    setLoading(false);
+  }, [session]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const post = async () => {
+    if (!postForm.title || !postForm.body) { alert("Title and body required"); return; }
+    setPosting(true);
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/sasohn_notice`, {
+        method: "POST",
+        headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ ...postForm, event_date: postForm.event_date || null, link: postForm.link || null })
+      });
+      setPostForm({ title: "", body: "", category: "general", event_date: "", link: "" });
+      setShowPost(false);
+      load();
+    } catch(e) { alert("Post failed"); }
+    setPosting(false);
+  };
+
+  const categories = ["all", ...Object.keys(CATEGORY_META)];
+  const filtered = filter === "all" ? notices : notices.filter(n => n.category === filter);
+  const pinned = filtered.filter(n => n.pinned);
+  const regular = filtered.filter(n => !n.pinned);
+
+  const NoticeCard = ({ n }) => {
+    const meta = CATEGORY_META[n.category] || CATEGORY_META.general;
+    const isOpen = expanded === n.id;
+    return (
+      <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${n.pinned ? C.teal : C.border}`, padding: "1rem", marginBottom: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: meta.bg, color: meta.color, fontWeight: 600 }}>{meta.label}</span>
+              {n.pinned && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#E1F5EE", color: C.teal, fontWeight: 600 }}>📌 Pinned</span>}
+              {n.event_date && <span style={{ fontSize: 11, color: C.muted }}>📅 {n.event_date}</span>}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.tealDark, marginBottom: 4, cursor: "pointer" }} onClick={() => setExpanded(isOpen ? null : n.id)}>
+              {n.title}
+            </div>
+            {isOpen ? (
+              <div style={{ fontSize: 13, color: C.text, lineHeight: 1.7, marginBottom: n.link ? 8 : 0 }}>{n.body}</div>
+            ) : (
+              <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>{n.body.length > 140 ? n.body.slice(0, 140) + "…" : n.body}</div>
+            )}
+            {isOpen && n.link && (
+              <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: C.teal, fontWeight: 500 }}>
+                {n.link.startsWith("mailto:") ? "📧 Contact / register" : "🔗 More information →"}
+              </a>
+            )}
+          </div>
+          <button onClick={() => setExpanded(isOpen ? null : n.id)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 18, lineHeight: 1, flexShrink: 0, paddingTop: 2 }}>
+            {isOpen ? "▲" : "▼"}
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>
+          {new Date(n.created_at).toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric" })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: C.tealDark, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📋</div>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>SASOHN Hub</h2>
+          </div>
+          <p style={{ margin: 0, fontSize: 13, color: C.muted }}>News, CPD events, regulatory updates and opportunities from SASOHN</p>
+        </div>
+        <button onClick={() => setShowPost(v => !v)} style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>+ Post notice</button>
+      </div>
+
+      {showPost && (
+        <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.teal}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: 12 }}>New SASOHN notice</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Title *</label>
+              <input value={postForm.title} onChange={e => setPostForm(f => ({...f, title: e.target.value}))} placeholder="e.g. CPD Webinar — July 2026" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Category</label>
+              <select value={postForm.category} onChange={e => setPostForm(f => ({...f, category: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                {Object.entries(CATEGORY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Event date (optional)</label>
+              <input type="date" value={postForm.event_date} onChange={e => setPostForm(f => ({...f, event_date: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Body *</label>
+              <textarea value={postForm.body} onChange={e => setPostForm(f => ({...f, body: e.target.value}))} rows={4} placeholder="Full notice text..." style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Link or email (optional)</label>
+              <input value={postForm.link} onChange={e => setPostForm(f => ({...f, link: e.target.value}))} placeholder="https://... or mailto:..." style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={post} disabled={posting} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: posting ? C.bgSub : C.teal, color: posting ? C.muted : "#fff", fontSize: 13, fontWeight: 600, cursor: posting ? "default" : "pointer" }}>{posting ? "Posting..." : "Post notice"}</button>
+            <button onClick={() => setShowPost(false)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Category filter */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: "1.25rem" }}>
+        {categories.map(cat => {
+          const meta = cat === "all" ? { label: "All", color: C.teal, bg: "#E1F5EE" } : CATEGORY_META[cat];
+          const isActive = filter === cat;
+          return (
+            <button key={cat} onClick={() => setFilter(cat)} style={{ padding: "5px 12px", borderRadius: 20, border: `1px solid ${isActive ? meta.color : C.border}`, background: isActive ? meta.bg : "#fff", color: isActive ? meta.color : C.muted, fontSize: 12, fontWeight: isActive ? 600 : 400, cursor: "pointer" }}>
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: "2rem", color: C.muted, fontSize: 13 }}>Loading notices...</div>
+      ) : filtered.length === 0 ? (
+        <Card style={{ textAlign: "center", padding: "2.5rem" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>No notices yet</div>
+          <div style={{ fontSize: 13, color: C.muted }}>SASOHN announcements, CPD events and regulatory updates will appear here.</div>
+        </Card>
+      ) : (
+        <>
+          {pinned.length > 0 && (
+            <div style={{ marginBottom: "1rem" }}>
+              {pinned.map(n => <NoticeCard key={n.id} n={n} />)}
+            </div>
+          )}
+          {regular.map(n => <NoticeCard key={n.id} n={n} />)}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV_OHP_GROUPS = [
   {
@@ -7836,6 +8010,7 @@ const NAV_OHP_GROUPS = [
     label: "Practice",
     items: [
       { id: "portal",       label: "Employer view",  icon: "🏢" },
+      { id: "sasohn_hub",   label: "SASOHN Hub",     icon: "📋" },
       { id: "cpd",          label: "CPD tracker",    icon: "🎓" },
       { id: "finance",      label: "Finance",        icon: "💳" },
       { id: "settings",     label: "Settings",       icon: "⚙" },
@@ -8288,6 +8463,7 @@ export default function App() {
               {screen === "chronic"      && <ChronicDiseaseRegister session={session} />}
               {screen === "pregnancy"    && <PregnancyRiskAssessment session={session} />}
               {screen === "wellness_day" && <WellnessDay session={session} />}
+              {screen === "sasohn_hub"   && <SasohnHub session={session} />}
             </div>
           </div>
         </div>
