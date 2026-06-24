@@ -6924,6 +6924,772 @@ const DoLChecklist = ({ navigate }) => {
   );
 };
 
+
+// ─── PRE-EMPLOYMENT MEDICAL TEMPLATE ─────────────────────────────────────────
+const PRE_EMP_BATTERY = [
+  { id: "vision",        label: "Visual acuity",          unit: "Snellen",  normal: "6/6 bilateral" },
+  { id: "colour",        label: "Colour vision",           unit: "",         normal: "Normal" },
+  { id: "audiometry",    label: "Audiometry",              unit: "dBHL",     normal: "≤25dB all freq" },
+  { id: "spirometry",    label: "Spirometry (FVC/FEV1)",   unit: "% pred",   normal: "FVC≥80% FEV1≥80%" },
+  { id: "bp",            label: "Blood pressure",          unit: "mmHg",     normal: "<140/90" },
+  { id: "pulse",         label: "Pulse rate",              unit: "bpm",      normal: "60–100" },
+  { id: "height",        label: "Height",                  unit: "cm",       normal: "" },
+  { id: "weight",        label: "Weight",                  unit: "kg",       normal: "" },
+  { id: "bmi",           label: "BMI",                     unit: "kg/m²",    normal: "18.5–24.9" },
+  { id: "urinalysis",    label: "Urinalysis",              unit: "",         normal: "No abnormalities" },
+  { id: "glucose",       label: "Random glucose",          unit: "mmol/L",   normal: "<7.8" },
+  { id: "musculo",       label: "Musculoskeletal exam",    unit: "",         normal: "Full ROM, no tenderness" },
+  { id: "skin",          label: "Skin examination",        unit: "",         normal: "No lesions/dermatitis" },
+  { id: "neuro",         label: "Neurological screen",     unit: "",         normal: "Normal reflexes/coordination" },
+];
+
+const PreEmploymentMedical = ({ session }) => {
+  const { persons, employers, db } = useData();
+  const [selPersonId, setSelPersonId] = React.useState("");
+  const [selEmployerId, setSelEmployerId] = React.useState("");
+  const [roleTitle, setRoleTitle] = React.useState("");
+  const [hazards, setHazards] = React.useState("");
+  const [results, setResults] = React.useState({});
+  const [findings, setFindings] = React.useState("");
+  const [outcome, setOutcome] = React.useState("fit");
+  const [restrictions, setRestrictions] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const [history, setHistory] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem("oh_pre_emp") || "[]"); } catch { return []; }
+  });
+
+  const meta = session?.user?.user_metadata || {};
+  const selPerson = persons.find(p => p.id === selPersonId);
+  const selEmployer = employers.find(e => e.id === selEmployerId);
+
+  const updateResult = (id, field, val) => {
+    setResults(r => ({ ...r, [id]: { ...(r[id] || {}), [field]: val } }));
+  };
+
+  const handleSave = async () => {
+    if (!selPersonId || !selEmployerId) { alert("Select a person and employer first."); return; }
+    setSaving(true);
+    const record = {
+      id: crypto.randomUUID(),
+      person_id: selPersonId,
+      person_name: selPerson ? `${selPerson.first_name} ${selPerson.last_name}` : "",
+      employer_id: selEmployerId,
+      employer_name: selEmployer?.name || "",
+      role_title: roleTitle,
+      hazards,
+      results,
+      findings,
+      outcome,
+      restrictions,
+      practitioner: meta.full_name || meta.practitioner_name || "",
+      sanc: meta.sanc_number || "",
+      date: new Date().toISOString().slice(0, 10),
+      created_at: new Date().toISOString(),
+    };
+    const updated = [record, ...history.slice(0, 49)];
+    localStorage.setItem("oh_pre_emp", JSON.stringify(updated));
+    setHistory(updated);
+    setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const printReport = (rec) => {
+    const r = rec || { person_name: selPerson ? `${selPerson.first_name} ${selPerson.last_name}` : "", employer_name: selEmployer?.name || "", role_title: roleTitle, hazards, results, findings, outcome, restrictions, practitioner: meta.full_name || "", sanc: meta.sanc_number || "", date: new Date().toISOString().slice(0,10) };
+    const rows = PRE_EMP_BATTERY.map(b => {
+      const res = r.results?.[b.id] || {};
+      return `<tr><td style="padding:5px 8px;border-bottom:1px solid #f3f4f6">${b.label}</td><td style="padding:5px 8px;border-bottom:1px solid #f3f4f6">${res.value || "—"} ${b.unit}</td><td style="padding:5px 8px;border-bottom:1px solid #f3f4f6;color:#6b7280;font-size:12px">${b.normal}</td><td style="padding:5px 8px;border-bottom:1px solid #f3f4f6">${res.normal === "false" ? "<span style=color:#dc2626>Abnormal</span>" : res.value ? "<span style=color:#0F6E56>Normal</span>" : ""}</td></tr>`;
+    }).join("");
+    const outcomeColor = r.outcome === "fit" ? "#0F6E56" : r.outcome === "fit_with_restrictions" ? "#d97706" : "#dc2626";
+    const outcomeLabel = r.outcome === "fit" ? "FIT FOR DUTY" : r.outcome === "fit_with_restrictions" ? "FIT WITH RESTRICTIONS" : "UNFIT FOR THIS ROLE";
+    const w = window.open("", "_blank");
+    w.document.write(`<!DOCTYPE html><html><head><title>Pre-Employment Medical Report</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#1a2e2a}h1{color:#0D6B6E;font-size:18px;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#04342C;color:#fff;padding:7px 8px;text-align:left;font-size:12px}.outcome{background:${outcomeColor};color:#fff;border-radius:6px;padding:10px 16px;font-weight:700;font-size:16px;display:inline-block;margin:16px 0}.sig{margin-top:40px;border-top:1px solid #ccc;padding-top:16px;font-size:12px;color:#666}</style></head><body><h1>Pre-Employment Medical Report</h1><p style="font-size:13px;color:#444;margin-bottom:16px">${r.practitioner}${r.sanc ? " | SANC: " + r.sanc : ""} | Date: ${r.date}</p><table><tr><th>Field</th><th>Detail</th></tr><tr><td>Candidate</td><td>${r.person_name}</td></tr><tr><td>Employer</td><td>${r.employer_name}</td></tr><tr><td>Role applied for</td><td>${r.role_title}</td></tr><tr><td>Identified hazards</td><td>${r.hazards || "—"}</td></tr></table><h2 style="font-size:14px;color:#0D6B6E;margin-bottom:8px">Examination findings</h2><table><thead><tr><th>Test</th><th>Result</th><th>Reference</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>${r.findings ? `<p style="font-size:13px"><strong>Additional findings:</strong> ${r.findings}</p>` : ""}<div class="outcome">${outcomeLabel}</div>${r.restrictions ? `<p style="font-size:13px;margin-top:8px"><strong>Restrictions/conditions:</strong> ${r.restrictions}</p>` : ""}<div class="sig"><p>Signature: _________________________________ Date: ____________</p><p style="margin-top:6px">${r.practitioner} | ${r.sanc ? "SANC: " + r.sanc : ""}</p><p style="font-size:11px;color:#9ca3af;margin-top:6px">Issued in terms of BCEA Section 23(2) by a registered nursing practitioner registered with the South African Nursing Council. This report is based on examination findings and disclosed medical history. It does not constitute a guarantee of fitness.</p></div></body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>Pre-employment medical</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.muted }}>Structured pre-employment examination with printable report</p>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: "1.25rem" }}>
+        <div>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Candidate *</label>
+          <select value={selPersonId} onChange={e => setSelPersonId(e.target.value)} style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+            <option value="">Select person...</option>
+            {persons.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Employer *</label>
+          <select value={selEmployerId} onChange={e => setSelEmployerId(e.target.value)} style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+            <option value="">Select employer...</option>
+            {employers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Role applied for</label>
+          <input value={roleTitle} onChange={e => setRoleTitle(e.target.value)} placeholder="e.g. Machine Operator" style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Identified hazard exposures</label>
+          <input value={hazards} onChange={e => setHazards(e.target.value)} placeholder="e.g. Noise, dust, heights" style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, marginBottom: "1.25rem", overflow: "hidden" }}>
+        <div style={{ padding: "0.875rem 1.25rem", borderBottom: `1px solid ${C.border}`, background: C.bgSub }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark }}>Examination battery</div>
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "#f9fafb" }}>
+              {["Test", "Result", "Unit", "Normal range", "Status"].map(h => (
+                <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, color: C.muted, fontWeight: 600, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PRE_EMP_BATTERY.map(b => (
+              <tr key={b.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                <td style={{ padding: "8px 12px", fontSize: 13, fontWeight: 500 }}>{b.label}</td>
+                <td style={{ padding: "8px 12px" }}>
+                  <input value={results[b.id]?.value || ""} onChange={e => updateResult(b.id, "value", e.target.value)} placeholder="Enter result" style={{ padding: "5px 8px", borderRadius: 5, border: `1px solid ${C.border}`, fontSize: 12, width: 120 }} />
+                </td>
+                <td style={{ padding: "8px 12px", fontSize: 12, color: C.muted }}>{b.unit}</td>
+                <td style={{ padding: "8px 12px", fontSize: 12, color: C.muted }}>{b.normal}</td>
+                <td style={{ padding: "8px 12px" }}>
+                  {results[b.id]?.value && (
+                    <select value={results[b.id]?.normal ?? "true"} onChange={e => updateResult(b.id, "normal", e.target.value)} style={{ padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}>
+                      <option value="true">Normal</option>
+                      <option value="false">Abnormal</option>
+                    </select>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ marginBottom: "1.25rem" }}>
+        <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Additional findings / notes</label>
+        <textarea value={findings} onChange={e => setFindings(e.target.value)} rows={3} placeholder="Any additional clinical findings..." style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.border}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: 10 }}>Outcome</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          {[["fit","Fit for duty","#0F6E56"],["fit_with_restrictions","Fit with restrictions","#d97706"],["unfit","Unfit for this role","#dc2626"]].map(([val, label, color]) => (
+            <button key={val} onClick={() => setOutcome(val)} style={{ padding: "8px 14px", borderRadius: 7, border: `2px solid ${outcome === val ? color : C.border}`, background: outcome === val ? color : "#fff", color: outcome === val ? "#fff" : C.text, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{label}</button>
+          ))}
+        </div>
+        {outcome !== "fit" && (
+          <div>
+            <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Restrictions / conditions</label>
+            <textarea value={restrictions} onChange={e => setRestrictions(e.target.value)} rows={2} placeholder="Specify any restrictions or conditions..." style={{ width: "100%", padding: "9px 11px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={handleSave} disabled={saving} style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: saving ? C.bgSub : C.teal, color: saving ? C.muted : "#fff", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>
+          {saved ? "✓ Saved" : saving ? "Saving..." : "Save record"}
+        </button>
+        <button onClick={() => printReport()} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>📄 Print report</button>
+      </div>
+
+      {history.length > 0 && (
+        <div style={{ marginTop: "1.5rem" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.tealDark, marginBottom: 10 }}>Recent pre-employment medicals</div>
+          {history.slice(0, 10).map(rec => (
+            <div key={rec.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "0.875rem 1rem", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{rec.person_name} — {rec.role_title || "Role not specified"}</div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{rec.employer_name} · {rec.date} · <span style={{ color: rec.outcome === "fit" ? C.teal : rec.outcome === "fit_with_restrictions" ? C.amber : C.red, fontWeight: 500 }}>{rec.outcome === "fit" ? "Fit" : rec.outcome === "fit_with_restrictions" ? "Fit with restrictions" : "Unfit"}</span></div>
+              </div>
+              <button onClick={() => printReport(rec)} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer" }}>Print</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── REFERRAL TRACKING REGISTER ──────────────────────────────────────────────
+const ReferralRegister = ({ session }) => {
+  const { persons } = useData();
+  const LS_KEY = "oh_referrals";
+  const [refs, setRefs] = React.useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({ person_id: "", specialist_type: "", referred_to: "", reason: "", date_referred: "", date_due: "", status: "pending" });
+  const saveRefs = (items) => { localStorage.setItem(LS_KEY, JSON.stringify(items)); setRefs(items); };
+  const addRef = () => {
+    if (!form.person_id || !form.specialist_type) { alert("Person and referral type required"); return; }
+    saveRefs([{ ...form, id: crypto.randomUUID(), created_at: new Date().toISOString() }, ...refs]);
+    setForm({ person_id: "", specialist_type: "", referred_to: "", reason: "", date_referred: "", date_due: "", status: "pending" });
+    setShowAdd(false);
+  };
+  const updateStatus = (id, status, feedback = "") => {
+    saveRefs(refs.map(r => r.id === id ? { ...r, status, feedback: feedback || r.feedback } : r));
+  };
+  const open = refs.filter(r => r.status === "pending" || r.status === "attended");
+  const closed = refs.filter(r => r.status === "completed" || r.status === "dna" || r.status === "cancelled");
+  const statusColor = { pending: C.amber, attended: C.teal, completed: "#16a34a", dna: C.red, cancelled: C.muted };
+  const statusLabel = { pending: "Awaiting appointment", attended: "Attended — awaiting report", completed: "Completed", dna: "DNA — did not attend", cancelled: "Cancelled" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>Referral register</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.muted }}>Track specialist referrals and follow-up outcomes</p>
+        </div>
+        <button onClick={() => setShowAdd(v => !v)} style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add referral</button>
+      </div>
+
+      {showAdd && (
+        <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.teal}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Patient *</label>
+              <select value={form.person_id} onChange={e => setForm(f => ({...f, person_id: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="">Select...</option>
+                {persons.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Referral type *</label>
+              <select value={form.specialist_type} onChange={e => setForm(f => ({...f, specialist_type: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="">Select...</option>
+                {["Pulmonologist","Audiologist","Orthopaedic surgeon","Dermatologist","Physiotherapist","Occupational therapist","Psychologist","Cardiologist","Ophthalmologist","ENT specialist","Neurologist","General practitioner","Emergency department","Other specialist"].map(s => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Referred to (name / practice)</label>
+              <input value={form.referred_to} onChange={e => setForm(f => ({...f, referred_to: e.target.value}))} placeholder="Dr. Smith, Pulm Associates" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Date referred</label>
+              <input type="date" value={form.date_referred} onChange={e => setForm(f => ({...f, date_referred: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Follow-up due date</label>
+              <input type="date" value={form.date_due} onChange={e => setForm(f => ({...f, date_due: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Reason for referral</label>
+              <textarea value={form.reason} onChange={e => setForm(f => ({...f, reason: e.target.value}))} rows={2} placeholder="Clinical reason for referral..." style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={addRef} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save referral</button>
+            <button onClick={() => setShowAdd(false)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {open.length === 0 && closed.length === 0 ? (
+        <Card style={{ textAlign: "center", padding: "2.5rem" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>No referrals logged</div>
+          <div style={{ fontSize: 13, color: C.muted }}>Add a referral to start tracking specialist appointments and outcomes.</div>
+        </Card>
+      ) : (
+        <>
+          {open.length > 0 && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Open referrals ({open.length})</div>
+              {open.map(ref => {
+                const person = persons.find(p => p.id === ref.person_id);
+                const overdue = ref.date_due && new Date(ref.date_due) < new Date();
+                return (
+                  <div key={ref.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${overdue ? C.red : C.border}`, padding: "1rem", marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{person ? `${person.first_name} ${person.last_name}` : ref.person_id} → {ref.specialist_type}</div>
+                        {ref.referred_to && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{ref.referred_to}</div>}
+                        {ref.reason && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{ref.reason}</div>}
+                        <div style={{ fontSize: 11, color: overdue ? C.red : C.muted, marginTop: 4 }}>
+                          Referred: {ref.date_referred || "—"} {ref.date_due && `· Follow-up due: ${ref.date_due}${overdue ? " ⚠ OVERDUE" : ""}`}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: C.bgSub, color: statusColor[ref.status], fontWeight: 500 }}>{statusLabel[ref.status]}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {ref.status === "pending" && <button onClick={() => updateStatus(ref.id, "attended")} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, border: `1px solid ${C.teal}`, background: "#fff", color: C.teal, cursor: "pointer" }}>Mark attended</button>}
+                      {(ref.status === "pending" || ref.status === "attended") && <button onClick={() => { const fb = prompt("Specialist feedback / outcome:"); if (fb !== null) updateStatus(ref.id, "completed", fb); }} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, border: `1px solid ${C.teal}`, background: "#fff", color: C.teal, cursor: "pointer" }}>Complete + feedback</button>}
+                      <button onClick={() => updateStatus(ref.id, "dna")} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, border: `1px solid ${C.border}`, background: "#fff", color: C.muted, cursor: "pointer" }}>DNA</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {closed.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Closed referrals ({closed.length})</div>
+              {closed.slice(0, 10).map(ref => {
+                const person = persons.find(p => p.id === ref.person_id);
+                return (
+                  <div key={ref.id} style={{ background: C.bgSub, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0.875rem 1rem", marginBottom: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{person ? `${person.first_name} ${person.last_name}` : ""} → {ref.specialist_type}</div>
+                        {ref.feedback && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Outcome: {ref.feedback}</div>}
+                      </div>
+                      <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#fff", color: statusColor[ref.status], fontWeight: 500 }}>{statusLabel[ref.status]}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── CHRONIC DISEASE MANAGEMENT ───────────────────────────────────────────────
+const CHRONIC_CONDITIONS = ["Hypertension","Type 2 diabetes","Asthma","COPD","Epilepsy","Depression/anxiety","HIV (managed)","Hypothyroidism","Hyperthyroidism","Ischaemic heart disease","Chronic kidney disease","Obesity (BMI>30)","Substance use disorder (in recovery)","Other"];
+
+const ChronicDiseaseRegister = ({ session }) => {
+  const { persons } = useData();
+  const LS_KEY = "oh_chronic";
+  const [records, setRecords] = React.useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({ person_id: "", condition: "", diagnosed: "", medication: "", controlled: "yes", fitness_implication: "none", review_due: "", notes: "" });
+  const saveRecords = (items) => { localStorage.setItem(LS_KEY, JSON.stringify(items)); setRecords(items); };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const reviewsDue = records.filter(r => r.review_due && r.review_due <= today);
+  const active = records.filter(r => r.status !== "resolved");
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>Chronic disease register</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.muted }}>Track managed chronic conditions and fitness-for-work implications</p>
+        </div>
+        <button onClick={() => setShowAdd(v => !v)} style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add record</button>
+      </div>
+
+      {reviewsDue.length > 0 && (
+        <div style={{ background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 10, padding: "0.875rem 1rem", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e", marginBottom: 4 }}>⚠ {reviewsDue.length} chronic disease review{reviewsDue.length > 1 ? "s" : ""} overdue</div>
+          {reviewsDue.map(r => {
+            const p = persons.find(x => x.id === r.person_id);
+            return <div key={r.id} style={{ fontSize: 12, color: "#92400e" }}>{p ? `${p.first_name} ${p.last_name}` : ""} — {r.condition} (due {r.review_due})</div>;
+          })}
+        </div>
+      )}
+
+      {showAdd && (
+        <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.teal}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Patient *</label>
+              <select value={form.person_id} onChange={e => setForm(f => ({...f, person_id: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="">Select...</option>
+                {persons.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Condition *</label>
+              <select value={form.condition} onChange={e => setForm(f => ({...f, condition: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="">Select...</option>
+                {CHRONIC_CONDITIONS.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Date diagnosed</label>
+              <input type="date" value={form.diagnosed} onChange={e => setForm(f => ({...f, diagnosed: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Review due date</label>
+              <input type="date" value={form.review_due} onChange={e => setForm(f => ({...f, review_due: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Current medication</label>
+              <input value={form.medication} onChange={e => setForm(f => ({...f, medication: e.target.value}))} placeholder="e.g. Amlodipine 5mg daily" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Controlled?</label>
+              <select value={form.controlled} onChange={e => setForm(f => ({...f, controlled: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="yes">Yes — well controlled</option>
+                <option value="partial">Partial — needs optimisation</option>
+                <option value="no">No — poorly controlled</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Fitness implication</label>
+              <select value={form.fitness_implication} onChange={e => setForm(f => ({...f, fitness_implication: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="none">None — fit for full duties</option>
+                <option value="monitoring">Monitoring required</option>
+                <option value="restriction">Work restriction applies</option>
+                <option value="unfit">Currently unfit</option>
+              </select>
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Clinical notes</label>
+              <textarea value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} rows={2} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { if (!form.person_id || !form.condition) return; saveRecords([{...form, id: crypto.randomUUID(), created_at: new Date().toISOString()}, ...records]); setForm({ person_id: "", condition: "", diagnosed: "", medication: "", controlled: "yes", fitness_implication: "none", review_due: "", notes: "" }); setShowAdd(false); }} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save</button>
+            <button onClick={() => setShowAdd(false)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {active.length === 0 ? (
+        <Card style={{ textAlign: "center", padding: "2.5rem" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>💊</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>No chronic disease records</div>
+          <div style={{ fontSize: 13, color: C.muted }}>Add records to track managed conditions and their occupational health implications.</div>
+        </Card>
+      ) : (
+        active.map(rec => {
+          const person = persons.find(p => p.id === rec.person_id);
+          const controlledColor = { yes: C.teal, partial: C.amber, no: C.red }[rec.controlled] || C.muted;
+          const fitColor = { none: C.teal, monitoring: C.amber, restriction: C.amber, unfit: C.red }[rec.fitness_implication] || C.muted;
+          const overdue = rec.review_due && rec.review_due <= today;
+          return (
+            <div key={rec.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${overdue ? C.red : C.border}`, padding: "1rem", marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{person ? `${person.first_name} ${person.last_name}` : ""} — {rec.condition}</div>
+                  {rec.medication && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Medication: {rec.medication}</div>}
+                  {rec.notes && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{rec.notes}</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: C.bgSub, color: controlledColor, fontWeight: 500 }}>
+                      {rec.controlled === "yes" ? "Well controlled" : rec.controlled === "partial" ? "Partially controlled" : "Poorly controlled"}
+                    </span>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: C.bgSub, color: fitColor, fontWeight: 500 }}>
+                      {rec.fitness_implication === "none" ? "Full duties" : rec.fitness_implication === "monitoring" ? "Monitoring req." : rec.fitness_implication === "restriction" ? "Restricted duties" : "Unfit"}
+                    </span>
+                    {rec.review_due && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: overdue ? "#fef2f2" : C.bgSub, color: overdue ? C.red : C.muted, fontWeight: overdue ? 600 : 400 }}>Review: {rec.review_due}{overdue ? " ⚠" : ""}</span>}
+                  </div>
+                </div>
+                <button onClick={() => saveRecords(records.filter(r => r.id !== rec.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, opacity: 0.6 }}>✕</button>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+};
+
+// ─── PREGNANCY RISK ASSESSMENT ────────────────────────────────────────────────
+const PREGNANCY_HAZARDS = [
+  { id: "chemicals",  label: "Teratogenic chemicals / solvents" },
+  { id: "radiation",  label: "Ionising radiation" },
+  { id: "heavylift",  label: "Manual handling / heavy lifting (>10kg)" },
+  { id: "standing",   label: "Prolonged standing (>4hrs/shift)" },
+  { id: "nights",     label: "Night shift work" },
+  { id: "vibration",  label: "Whole-body vibration" },
+  { id: "biological", label: "Biological hazard exposure" },
+  { id: "stress",     label: "High psychological stress" },
+  { id: "heat",       label: "Extreme heat / cold" },
+  { id: "noise",      label: "High noise levels (>85dB)" },
+];
+
+const PregnancyRiskAssessment = ({ session }) => {
+  const { persons } = useData();
+  const LS_KEY = "oh_pregnancy_ra";
+  const [records, setRecords] = React.useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({ person_id: "", edd: "", gestation: "", hazards: [], risk_level: "low", outcome: "continue_duties", restrictions: "", notes: "" });
+  const meta = session?.user?.user_metadata || {};
+
+  const toggleHazard = (id) => setForm(f => ({ ...f, hazards: f.hazards.includes(id) ? f.hazards.filter(h => h !== id) : [...f.hazards, id] }));
+
+  const save = () => {
+    if (!form.person_id) { alert("Select a patient"); return; }
+    const rec = { ...form, id: crypto.randomUUID(), practitioner: meta.full_name || "", sanc: meta.sanc_number || "", date: new Date().toISOString().slice(0, 10), created_at: new Date().toISOString() };
+    const updated = [rec, ...records];
+    localStorage.setItem(LS_KEY, JSON.stringify(updated));
+    setRecords(updated);
+    setForm({ person_id: "", edd: "", gestation: "", hazards: [], risk_level: "low", outcome: "continue_duties", restrictions: "", notes: "" });
+    setShowAdd(false);
+  };
+
+  const print = (rec) => {
+    const person = persons.find(p => p.id === rec.person_id);
+    const hazardRows = PREGNANCY_HAZARDS.map(h => `<tr><td style="padding:5px 8px;border-bottom:1px solid #f3f4f6">${h.label}</td><td style="padding:5px 8px;border-bottom:1px solid #f3f4f6;color:${rec.hazards.includes(h.id) ? "#dc2626" : "#0F6E56"}">${rec.hazards.includes(h.id) ? "PRESENT" : "Not applicable"}</td></tr>`).join("");
+    const outcomeLabel = { continue_duties: "Continue current duties", modified_duties: "Modified/alternative duties required", remove_from_hazard: "Remove from hazardous environment", sick_leave: "Pregnancy-related sick leave" }[rec.outcome] || rec.outcome;
+    const riskColor = { low: "#0F6E56", moderate: "#d97706", high: "#dc2626" }[rec.risk_level];
+    const w = window.open("", "_blank");
+    w.document.write(`<!DOCTYPE html><html><head><title>Pregnancy Risk Assessment</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#1a2e2a}h1{color:#0D6B6E;font-size:18px}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#04342C;color:#fff;padding:7px 8px;text-align:left;font-size:12px}.risk{background:${riskColor};color:#fff;border-radius:6px;padding:8px 14px;font-weight:700;display:inline-block;margin:12px 0}.sig{margin-top:40px;border-top:1px solid #ccc;padding-top:16px;font-size:12px;color:#666}</style></head><body><h1>Pregnancy Risk Assessment Certificate</h1><p style="font-size:13px;color:#444">${rec.practitioner}${rec.sanc ? " | SANC: " + rec.sanc : ""} | Date: ${rec.date}</p><table><tr><th>Field</th><th>Detail</th></tr><tr><td>Employee</td><td>${person ? person.first_name + " " + person.last_name : ""}</td></tr><tr><td>EDD</td><td>${rec.edd || "Not provided"}</td></tr><tr><td>Gestation (weeks)</td><td>${rec.gestation || "Not provided"}</td></tr></table><h2 style="font-size:14px;color:#0D6B6E">Hazard assessment</h2><table><thead><tr><th>Hazard</th><th>Status</th></tr></thead><tbody>${hazardRows}</tbody></table><div class="risk">RISK LEVEL: ${rec.risk_level.toUpperCase()}</div><h2 style="font-size:14px;color:#0D6B6E">Outcome</h2><p><strong>${outcomeLabel}</strong></p>${rec.restrictions ? `<p><strong>Restrictions:</strong> ${rec.restrictions}</p>` : ""}${rec.notes ? `<p><strong>Notes:</strong> ${rec.notes}</p>` : ""}<p style="font-size:12px;color:#6b7280;margin-top:12px">This assessment is conducted in terms of Section 26 of the Basic Conditions of Employment Act (No. 75 of 1997) and the Regulations for Hazardous Work by Pregnant and Lactating Women.</p><div class="sig"><p>Signature: _________________________________ Date: ____________</p><p style="margin-top:6px">${rec.practitioner}${rec.sanc ? " | SANC: " + rec.sanc : ""}</p></div></body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>Pregnancy risk assessment</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.muted }}>BCEA Section 26 — Hazardous Work by Pregnant and Lactating Women</p>
+        </div>
+        <button onClick={() => setShowAdd(v => !v)} style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ New assessment</button>
+      </div>
+
+      {showAdd && (
+        <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.teal}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Employee *</label>
+              <select value={form.person_id} onChange={e => setForm(f => ({...f, person_id: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="">Select...</option>
+                {persons.filter(p => p.gender === "F" || p.gender === "female").map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Expected delivery date</label>
+              <input type="date" value={form.edd} onChange={e => setForm(f => ({...f, edd: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 8 }}>Hazard exposures present in the workplace</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {PREGNANCY_HAZARDS.map(h => (
+                  <label key={h.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+                    <input type="checkbox" checked={form.hazards.includes(h.id)} onChange={() => toggleHazard(h.id)} style={{ cursor: "pointer" }} />
+                    {h.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Overall risk level</label>
+              <select value={form.risk_level} onChange={e => setForm(f => ({...f, risk_level: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="low">Low</option>
+                <option value="moderate">Moderate</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Recommended outcome</label>
+              <select value={form.outcome} onChange={e => setForm(f => ({...f, outcome: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="continue_duties">Continue current duties</option>
+                <option value="modified_duties">Modified/alternative duties</option>
+                <option value="remove_from_hazard">Remove from hazardous environment</option>
+                <option value="sick_leave">Pregnancy-related sick leave</option>
+              </select>
+            </div>
+            {form.outcome !== "continue_duties" && (
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Specific restrictions / alternative duties</label>
+                <textarea value={form.restrictions} onChange={e => setForm(f => ({...f, restrictions: e.target.value}))} rows={2} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+              </div>
+            )}
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Notes</label>
+              <textarea value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} rows={2} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, resize: "vertical", boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={save} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save + print</button>
+            <button onClick={() => setShowAdd(false)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {records.length === 0 && !showAdd ? (
+        <Card style={{ textAlign: "center", padding: "2.5rem" }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>🤱</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>No pregnancy risk assessments</div>
+          <div style={{ fontSize: 13, color: C.muted }}>BCEA Section 26 requires a risk assessment when an employee declares pregnancy. Add one when a declaration is received.</div>
+        </Card>
+      ) : records.map(rec => {
+        const person = persons.find(p => p.id === rec.person_id);
+        const riskColor = { low: C.teal, moderate: C.amber, high: C.red }[rec.risk_level];
+        return (
+          <div key={rec.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "1rem", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{person ? `${person.first_name} ${person.last_name}` : ""}</div>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>EDD: {rec.edd || "—"} · {rec.hazards.length} hazard{rec.hazards.length !== 1 ? "s" : ""} identified · Assessed {rec.date}</div>
+              <div style={{ marginTop: 4 }}>
+                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: C.bgSub, color: riskColor, fontWeight: 600 }}>{rec.risk_level.toUpperCase()} RISK</span>
+              </div>
+            </div>
+            <button onClick={() => print(rec)} style={{ fontSize: 12, padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer" }}>📄 Print cert</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ─── WELLNESS DAY MANAGER ─────────────────────────────────────────────────────
+const WellnessDay = ({ session }) => {
+  const { persons, employers } = useData();
+  const LS_KEY = "oh_wellness_days";
+  const [events, setEvents] = React.useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } });
+  const [showCreate, setShowCreate] = React.useState(false);
+  const [selEvent, setSelEvent] = React.useState(null);
+  const [form, setForm] = React.useState({ employer_id: "", date: "", title: "", services: [] });
+  const [screening, setScreening] = React.useState({});
+  const SERVICES = ["Blood pressure", "BMI / weight", "Random glucose", "Cholesterol", "HIV counselling referral", "Vision screen", "Dental referral", "Mental health screen", "Flu vaccination", "COVID vaccination", "TB symptom screen", "Lifestyle advice"];
+
+  const saveEvents = items => { localStorage.setItem(LS_KEY, JSON.stringify(items)); setEvents(items); };
+  const toggleService = s => setForm(f => ({ ...f, services: f.services.includes(s) ? f.services.filter(x => x !== s) : [...f.services, s] }));
+  const createEvent = () => {
+    if (!form.employer_id || !form.date) { alert("Employer and date required"); return; }
+    const ev = { ...form, id: crypto.randomUUID(), registrations: [], created_at: new Date().toISOString() };
+    const updated = [ev, ...events];
+    saveEvents(updated);
+    setForm({ employer_id: "", date: "", title: "", services: [] });
+    setShowCreate(false);
+    setSelEvent(ev);
+  };
+
+  const registerPerson = (eventId, personId) => {
+    const updated = events.map(ev => ev.id === eventId ? { ...ev, registrations: [...(ev.registrations || []).filter(r => r !== personId), personId] } : ev);
+    saveEvents(updated);
+    setSelEvent(updated.find(e => e.id === eventId));
+  };
+
+  const saveScreeningResult = (eventId, personId, field, value) => {
+    const key = `${eventId}_${personId}`;
+    setScreening(s => ({ ...s, [key]: { ...(s[key] || {}), [field]: value } }));
+  };
+
+  const exportWellnessCSV = (ev) => {
+    const employer = employers.find(e => e.id === ev.employer_id);
+    const rows = [["Name", "Employee No", ...ev.services, "Notes"]];
+    (ev.registrations || []).forEach(pid => {
+      const p = persons.find(x => x.id === pid);
+      const key = `${ev.id}_${pid}`;
+      const sc = screening[key] || {};
+      rows.push([p ? `${p.first_name} ${p.last_name}` : pid, p?.employee_number || "", ...ev.services.map(s => sc[s] || ""), sc.notes || ""]);
+    });
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+    a.download = `wellness-day-${ev.date}-${(employer?.name || "").replace(/[^a-z0-9]/gi,"-").toLowerCase()}.csv`;
+    a.click();
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>Wellness day manager</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.muted }}>Plan, register and capture results for employer wellness days</p>
+        </div>
+        <button onClick={() => setShowCreate(v => !v)} style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Create wellness day</button>
+      </div>
+
+      {showCreate && (
+        <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.teal}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Employer *</label>
+              <select value={form.employer_id} onChange={e => setForm(f => ({...f, employer_id: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+                <option value="">Select...</option>
+                {employers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Date *</label>
+              <input type="date" value={form.date} onChange={e => setForm(f => ({...f, date: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Event title</label>
+              <input value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} placeholder="e.g. Annual Health and Wellness Day 2026" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ gridColumn: "1/-1" }}>
+              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 8 }}>Services offered</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {SERVICES.map(s => (
+                  <label key={s} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+                    <input type="checkbox" checked={form.services.includes(s)} onChange={() => toggleService(s)} style={{ cursor: "pointer" }} />
+                    {s}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={createEvent} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Create event</button>
+            <button onClick={() => setShowCreate(false)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {!selEvent ? (
+        events.length === 0 ? (
+          <Card style={{ textAlign: "center", padding: "2.5rem" }}>
+            <div style={{ fontSize: 32, marginBottom: 10 }}>❤️</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>No wellness days planned</div>
+            <div style={{ fontSize: 13, color: C.muted }}>Create a wellness day event to start registering employees and capturing screening results.</div>
+          </Card>
+        ) : events.map(ev => {
+          const employer = employers.find(e => e.id === ev.employer_id);
+          return (
+            <div key={ev.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "1rem", marginBottom: 8, cursor: "pointer" }} onClick={() => setSelEvent(ev)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{ev.title || "Wellness Day"} — {ev.date}</div>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{employer?.name} · {(ev.registrations || []).length} registered · {ev.services.length} services</div>
+                </div>
+                <span style={{ fontSize: 12, color: C.teal }}>Open →</span>
+              </div>
+            </div>
+          );
+        })
+      ) : (
+        <div>
+          <button onClick={() => setSelEvent(null)} style={{ fontSize: 13, color: C.teal, background: "none", border: "none", cursor: "pointer", marginBottom: "1rem" }}>← Back to events</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>{selEvent.title || "Wellness Day"}</div>
+              <div style={{ fontSize: 13, color: C.muted }}>{employers.find(e => e.id === selEvent.employer_id)?.name} · {selEvent.date}</div>
+            </div>
+            <button onClick={() => exportWellnessCSV(selEvent)} style={{ padding: "7px 14px", borderRadius: 7, border: `1px solid ${C.teal}`, background: "#fff", color: C.teal, fontSize: 12, cursor: "pointer" }}>Export CSV</button>
+          </div>
+          <div style={{ marginBottom: "1rem" }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>Register employee</div>
+            <select onChange={e => { if (e.target.value) { registerPerson(selEvent.id, e.target.value); e.target.value = ""; } }} style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", minWidth: 240 }}>
+              <option value="">Select employee to register...</option>
+              {persons.filter(p => !(selEvent.registrations || []).includes(p.id)).map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+            </select>
+          </div>
+          {(selEvent.registrations || []).length === 0 ? (
+            <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "2rem" }}>No employees registered yet</div>
+          ) : (selEvent.registrations || []).map(pid => {
+            const person = persons.find(p => p.id === pid);
+            const key = `${selEvent.id}_${pid}`;
+            return (
+              <div key={pid} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "0.875rem 1rem", marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>{person ? `${person.first_name} ${person.last_name}` : pid}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6 }}>
+                  {selEvent.services.map(s => (
+                    <div key={s}>
+                      <label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 2 }}>{s}</label>
+                      <input value={screening[key]?.[s] || ""} onChange={e => saveScreeningResult(selEvent.id, pid, s, e.target.value)} placeholder="Result" style={{ width: "100%", padding: "5px 7px", borderRadius: 5, border: `1px solid ${C.border}`, fontSize: 12, boxSizing: "border-box" }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV_OHP = [
   { id: "dashboard",    label: "Dashboard",    icon: "⊞" },
@@ -6934,6 +7700,11 @@ const NAV_OHP = [
   { id: "fitness",      label: "Fitness certs",icon: "✅" },
   { id: "iod",          label: "IOD register", icon: "⚠" },
   { id: "drug",         label: "Drug testing", icon: "🧪" },
+  { id: "pre_emp",      label: "Pre-employment",icon:"🏥" },
+  { id: "referrals",    label: "Referrals",    icon: "↗" },
+  { id: "chronic",      label: "Chronic disease",icon:"💊" },
+  { id: "pregnancy",    label: "Pregnancy RA", icon: "🤱" },
+  { id: "wellness_day", label: "Wellness days", icon: "❤" },
   { id: "stock",        label: "Stock & cal.", icon: "📦" },
   { id: "dol_checklist",label: "DoL readiness",icon: "🔍" },
   { id: "portal",       label: "Employer view",icon: "🏢" },
@@ -7285,6 +8056,11 @@ export default function App() {
               {screen === "settings"     && <Settings session={session} />}
               {screen === "cpd"          && <CPDTracker session={session} isCPDFree={isCPDFree} onUpgrade={handleUpgradeToPro} />}
               {screen === "dol_checklist" && <DoLChecklist navigate={navigate} />}
+              {screen === "pre_emp"      && <PreEmploymentMedical session={session} />}
+              {screen === "referrals"    && <ReferralRegister session={session} />}
+              {screen === "chronic"      && <ChronicDiseaseRegister session={session} />}
+              {screen === "pregnancy"    && <PregnancyRiskAssessment session={session} />}
+              {screen === "wellness_day" && <WellnessDay session={session} />}
             </div>
           </div>
         </div>
