@@ -6399,7 +6399,7 @@ const OnboardingWizard = ({ session, onComplete }) => {
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 const PasswordInput = ({ value, onChange, placeholder, onKeyDown, label, hint }) => {
   const [show, setShow] = useState(false);
-  const inputStyle = { width: "100%", padding: "9px 40px 9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 14, outline: "none", fontFamily: "inherit" };
+  const inputStyle = { width: "100%", padding: "9px 40px 9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>
