@@ -7693,27 +7693,60 @@ const WellnessDay = ({ session }) => {
 };
 
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
-const NAV_OHP = [
-  { id: "dashboard",    label: "Dashboard",    icon: "⊞" },
-  { id: "flowboard",    label: "Flowboard",    icon: "📅" },
-  { id: "employers",    label: "Employers",    icon: "🏭" },
-  { id: "encounters",   label: "Encounters",   icon: "📋" },
-  { id: "surveillance", label: "Surveillance", icon: "📊" },
-  { id: "fitness",      label: "Fitness certs",icon: "✅" },
-  { id: "iod",          label: "IOD register", icon: "⚠" },
-  { id: "drug",         label: "Drug testing", icon: "🧪" },
-  { id: "pre_emp",      label: "Pre-employment",icon:"🏥" },
-  { id: "referrals",    label: "Referrals",    icon: "↗" },
-  { id: "chronic",      label: "Chronic disease",icon:"💊" },
-  { id: "pregnancy",    label: "Pregnancy RA", icon: "🤱" },
-  { id: "wellness_day", label: "Wellness days", icon: "❤" },
-  { id: "stock",        label: "Stock & cal.", icon: "📦" },
-  { id: "dol_checklist",label: "DoL readiness",icon: "🔍" },
-  { id: "portal",       label: "Employer view",icon: "🏢" },
-  { id: "cpd",          label: "CPD tracker",  icon: "🎓" },
-  { id: "finance",      label: "Finance",      icon: "💳" },
-  { id: "settings",     label: "Settings",     icon: "⚙" },
+const NAV_OHP_GROUPS = [
+  {
+    id: "overview",
+    label: "Overview",
+    items: [
+      { id: "dashboard",    label: "Dashboard",    icon: "⊞" },
+      { id: "flowboard",    label: "Flowboard",    icon: "📅" },
+    ],
+  },
+  {
+    id: "clinical",
+    label: "Clinical",
+    items: [
+      { id: "employers",    label: "Employers",      icon: "🏭" },
+      { id: "encounters",   label: "Encounters",     icon: "📋" },
+      { id: "surveillance", label: "Surveillance",   icon: "📊" },
+      { id: "fitness",      label: "Fitness certs",  icon: "✅" },
+      { id: "iod",          label: "IOD register",   icon: "⚠" },
+      { id: "drug",         label: "Drug testing",   icon: "🧪" },
+      { id: "pre_emp",      label: "Pre-employment", icon: "🏥" },
+      { id: "referrals",    label: "Referrals",      icon: "↗" },
+      { id: "chronic",      label: "Chronic disease",icon: "💊" },
+      { id: "pregnancy",    label: "Pregnancy RA",   icon: "🤱" },
+    ],
+  },
+  {
+    id: "workforce",
+    label: "Workforce",
+    items: [
+      { id: "wellness_day", label: "Wellness days",  icon: "❤" },
+    ],
+  },
+  {
+    id: "compliance",
+    label: "Compliance",
+    items: [
+      { id: "dol_checklist",label: "DoL readiness",  icon: "🔍" },
+      { id: "stock",        label: "Stock & cal.",   icon: "📦" },
+    ],
+  },
+  {
+    id: "practice",
+    label: "Practice",
+    items: [
+      { id: "portal",       label: "Employer view",  icon: "🏢" },
+      { id: "cpd",          label: "CPD tracker",    icon: "🎓" },
+      { id: "finance",      label: "Finance",        icon: "💳" },
+      { id: "settings",     label: "Settings",       icon: "⚙" },
+    ],
+  },
 ];
+
+// Flat list for Employer portal and CPD-free (unchanged)
+const NAV_OHP = NAV_OHP_GROUPS.flatMap(g => g.items);
 
 const NAV_EMPLOYER = [
   { id: "portal", label: "Dashboard", icon: "⊞" },
@@ -7722,31 +7755,120 @@ const NAV_EMPLOYER = [
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
 const Sidebar = ({ screen, setScreen, session, onLogout, view, isCPDFree, onUpgrade }) => {
-  const nav = view === "employer" ? NAV_EMPLOYER : NAV_OHP;
-  return (
-    <div style={{ width: 200, minHeight: "100vh", background: C.tealDark, display: "flex", flexDirection: "column", flexShrink: 0 }}>
-      <div style={{ padding: "1.25rem 1rem 1rem" }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", letterSpacing: "-0.01em" }}>OccHealth Pro SA</div>
-        <div style={{ fontSize: 10, color: "#5DCAA5", marginTop: 2, letterSpacing: "0.05em" }}>
-          {view === "employer" ? "EMPLOYER PORTAL" : view === "bureau" ? "BUREAU OPS" : "OHP CLINICAL"}
+  // Which group contains the active screen
+  const activeGroup = NAV_OHP_GROUPS.find(g => g.items.some(i => i.id === screen))?.id || "overview";
+  // Collapsed state — active group always starts open
+  const [collapsed, setCollapsed] = React.useState(() => {
+    const init = {};
+    NAV_OHP_GROUPS.forEach(g => { init[g.id] = false; }); // all open by default
+    return init;
+  });
+
+  const toggleGroup = (id) => {
+    // Never collapse the group containing the active screen
+    if (id === activeGroup) return;
+    setCollapsed(c => ({ ...c, [id]: !c[id] }));
+  };
+
+  // Ensure active group is always open when screen changes
+  React.useEffect(() => {
+    setCollapsed(c => ({ ...c, [activeGroup]: false }));
+  }, [activeGroup]);
+
+  if (view === "employer") {
+    return (
+      <div style={{ width: 200, minHeight: "100vh", background: C.tealDark, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        <div style={{ padding: "1.25rem 1rem 1rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", letterSpacing: "-0.01em" }}>OccHealth Pro SA</div>
+          <div style={{ fontSize: 10, color: "#5DCAA5", marginTop: 2, letterSpacing: "0.05em" }}>EMPLOYER PORTAL</div>
+        </div>
+        <nav style={{ flex: 1, padding: "0.5rem 0.5rem" }}>
+          {NAV_EMPLOYER.map(item => (
+            <div key={item.id} onClick={() => setScreen(item.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 7, marginBottom: 2, cursor: "pointer", background: screen === item.id ? "rgba(255,255,255,0.12)" : "transparent", color: screen === item.id ? "#fff" : "#9FE1CB", fontSize: 13 }}>
+              <span style={{ fontSize: 14 }}>{item.icon}</span>{item.label}
+            </div>
+          ))}
+        </nav>
+        <div style={{ padding: "1rem", borderTop: "0.5px solid rgba(255,255,255,0.1)" }}>
+          <div style={{ fontSize: 11, color: "#5DCAA5", marginBottom: 4 }}>{session.user.user_metadata.full_name}</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{session.user.email}</div>
+          <Btn variant="ghost" size="sm" onClick={onLogout} style={{ color: "#9FE1CB", borderColor: "rgba(255,255,255,0.2)", fontSize: 11 }}>Sign out</Btn>
         </div>
       </div>
-      <nav style={{ flex: 1, padding: "0.5rem 0.5rem" }}>
-        {nav.map(item => (
-          <div key={item.id} onClick={() => setScreen(item.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 7, marginBottom: 2, cursor: "pointer", background: screen === item.id ? "rgba(255,255,255,0.12)" : "transparent", color: screen === item.id ? "#fff" : "#9FE1CB", fontSize: 13, transition: "background 0.15s" }}>
-            <span style={{ fontSize: 14 }}>{item.icon}</span>
-            {item.label}
-          </div>
-        ))}
+    );
+  }
+
+  // CPD-free: flat 2-item sidebar
+  if (isCPDFree) {
+    return (
+      <div style={{ width: 200, minHeight: "100vh", background: C.tealDark, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        <div style={{ padding: "1.25rem 1rem 1rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", letterSpacing: "-0.01em" }}>OccHealth Pro SA</div>
+          <div style={{ fontSize: 10, color: "#5DCAA5", marginTop: 2, letterSpacing: "0.05em" }}>CPD FREE</div>
+        </div>
+        <nav style={{ flex: 1, padding: "0.5rem 0.5rem" }}>
+          {[{ id: "cpd", label: "CPD tracker", icon: "🎓" }, { id: "settings", label: "Settings", icon: "⚙" }].map(item => (
+            <div key={item.id} onClick={() => setScreen(item.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 7, marginBottom: 2, cursor: "pointer", background: screen === item.id ? "rgba(255,255,255,0.12)" : "transparent", color: screen === item.id ? "#fff" : "#9FE1CB", fontSize: 13 }}>
+              <span style={{ fontSize: 14 }}>{item.icon}</span>{item.label}
+            </div>
+          ))}
+        </nav>
+        <div style={{ padding: "1rem", borderTop: "0.5px solid rgba(255,255,255,0.1)" }}>
+          <button onClick={() => onUpgrade("ohp")} style={{ width: "100%", padding: "7px 10px", background: "#5DCAA5", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "center", marginBottom: 6 }}>⚡ Upgrade to Pro</button>
+          <Btn variant="ghost" size="sm" onClick={onLogout} style={{ color: "#9FE1CB", borderColor: "rgba(255,255,255,0.2)", fontSize: 11 }}>Sign out</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  // Full OHP sidebar — grouped and collapsible
+  return (
+    <div style={{ width: 210, minHeight: "100vh", background: C.tealDark, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+      <div style={{ padding: "1.25rem 1rem 1rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", letterSpacing: "-0.01em" }}>OccHealth Pro SA</div>
+        <div style={{ fontSize: 10, color: "#5DCAA5", marginTop: 2, letterSpacing: "0.05em" }}>OHP CLINICAL</div>
+      </div>
+
+      <nav style={{ flex: 1, padding: "0.25rem 0.5rem", overflowY: "auto" }}>
+        {NAV_OHP_GROUPS.map(group => {
+          const isActive = group.id === activeGroup;
+          const isCollapsed = collapsed[group.id] && !isActive;
+          return (
+            <div key={group.id} style={{ marginBottom: 4 }}>
+              {/* Group heading */}
+              <div
+                onClick={() => toggleGroup(group.id)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 10px", borderRadius: 5, cursor: isActive ? "default" : "pointer", marginBottom: 2 }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: isActive ? "#5DCAA5" : "rgba(159,225,203,0.5)" }}>
+                  {group.label}
+                </span>
+                {!isActive && (
+                  <span style={{ fontSize: 10, color: "rgba(159,225,203,0.4)", lineHeight: 1 }}>
+                    {isCollapsed ? "▸" : "▾"}
+                  </span>
+                )}
+              </div>
+
+              {/* Group items */}
+              {!isCollapsed && group.items.map(item => (
+                <div
+                  key={item.id}
+                  onClick={() => setScreen(item.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 10px 7px 14px", borderRadius: 6, marginBottom: 1, cursor: "pointer", background: screen === item.id ? "rgba(255,255,255,0.12)" : "transparent", color: screen === item.id ? "#fff" : "#9FE1CB", fontSize: 13, transition: "background 0.12s" }}
+                >
+                  <span style={{ fontSize: 13, opacity: screen === item.id ? 1 : 0.8 }}>{item.icon}</span>
+                  <span style={{ fontWeight: screen === item.id ? 500 : 400 }}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </nav>
-      <div style={{ padding: "1rem", borderTop: "0.5px solid rgba(255,255,255,0.1)" }}>
-        <div style={{ fontSize: 11, color: "#5DCAA5", marginBottom: 4 }}>{session.user.user_metadata.full_name}</div>
+
+      <div style={{ padding: "0.875rem 1rem", borderTop: "0.5px solid rgba(255,255,255,0.1)" }}>
+        <div style={{ fontSize: 11, color: "#5DCAA5", marginBottom: 2, fontWeight: 500 }}>{session.user.user_metadata.practitioner_name || session.user.user_metadata.full_name}</div>
         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{session.user.email}</div>
-        {isCPDFree && (
-          <button onClick={() => onUpgrade("ohp")} style={{ width: "100%", padding: "7px 10px", background: "#5DCAA5", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", textAlign: "center", marginBottom: 6 }}>
-            ⚡ Upgrade to Pro
-          </button>
-        )}
         <Btn variant="ghost" size="sm" onClick={onLogout} style={{ color: "#9FE1CB", borderColor: "rgba(255,255,255,0.2)", fontSize: 11 }}>Sign out</Btn>
       </div>
     </div>
