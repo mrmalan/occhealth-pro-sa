@@ -2981,12 +2981,211 @@ const IODRegister = () => {
     setGeneratingId(null);
   };
 
+  const [iodTab, setIodTab] = React.useState("injuries");
+
+  // Occupational disease state
+  const OCC_KEY = "oh_occ_diseases";
+  const [occDiseases, setOccDiseases] = React.useState(() => { try { return JSON.parse(localStorage.getItem(OCC_KEY) || "[]"); } catch { return []; } });
+  const [showOccForm, setShowOccForm] = React.useState(false);
+  const EMPTY_OCC = { person_id: "", employer_id: "", disease_type: "", onset_date: "", diagnosis_date: "", exposure_years: "", hazard_agent: "", symptoms: "", diagnosis: "", treating_doctor: "", reportable: true, coida_reported: false, notes: "" };
+  const [occForm, setOccForm] = React.useState(EMPTY_OCC);
+  const saveOccDiseases = items => { localStorage.setItem(OCC_KEY, JSON.stringify(items)); setOccDiseases(items); };
+
+  const OCC_DISEASES = [
+    "Noise-induced hearing loss (NIHL)",
+    "Occupational asthma",
+    "Contact dermatitis / occupational dermatosis",
+    "Silicosis",
+    "Cotton dust disease (byssinosis)",
+    "Chemical-induced lung disease",
+    "Occupational cancer (specify)",
+    "Vibration white finger / HAVS",
+    "Repetitive strain injury (RSI)",
+    "Lead poisoning",
+    "Solvent-induced neurotoxicity",
+    "Other occupational disease",
+  ];
+
+  const printOccReport = (rec) => {
+    const person = persons.find(p => p.id === rec.person_id);
+    const employer = employers.find(e => e.id === rec.employer_id);
+    const w = window.open("", "_blank");
+    w.document.write(`<!DOCTYPE html><html><head><title>Occupational Disease Report</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#1a2e2a}h1{color:#0D6B6E;font-size:18px}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:7px 10px;border-bottom:1px solid #f3f4f6;font-size:13px}td:first-child{font-weight:500;color:#6b7280;width:35%}.sig{margin-top:40px;border-top:1px solid #ccc;padding-top:16px;font-size:12px;color:#666}</style></head><body>
+    <h1>Occupational Disease Report — COIDA Notification</h1>
+    <table>
+      <tr><td>Employee</td><td>${person ? person.first_name + " " + person.last_name : ""}</td></tr>
+      <tr><td>Employee number</td><td>${person?.employee_number || "—"}</td></tr>
+      <tr><td>Job title</td><td>${person?.job_title || "—"}</td></tr>
+      <tr><td>Employer</td><td>${employer?.name || "—"}</td></tr>
+      <tr><td>COIDA insurer</td><td>${employer?.coida_insurer?.replace(/_/g," ").replace(/\w/g,c=>c.toUpperCase()) || "—"}</td></tr>
+      <tr><td>Disease / condition</td><td>${rec.disease_type}</td></tr>
+      <tr><td>Hazard agent / exposure</td><td>${rec.hazard_agent || "—"}</td></tr>
+      <tr><td>Years of exposure</td><td>${rec.exposure_years || "—"}</td></tr>
+      <tr><td>Symptom onset</td><td>${rec.onset_date || "—"}</td></tr>
+      <tr><td>Date of diagnosis</td><td>${rec.diagnosis_date || "—"}</td></tr>
+      <tr><td>Diagnosis summary</td><td>${rec.diagnosis || "—"}</td></tr>
+      <tr><td>Symptoms</td><td>${rec.symptoms || "—"}</td></tr>
+      <tr><td>Treating doctor</td><td>${rec.treating_doctor || "—"}</td></tr>
+      <tr><td>Reportable to COIDA</td><td>${rec.reportable ? "Yes" : "No"}</td></tr>
+      <tr><td>COIDA claim submitted</td><td>${rec.coida_reported ? "Yes — W.Cl.4 submitted" : "Pending"}</td></tr>
+      ${rec.notes ? `<tr><td>Notes</td><td>${rec.notes}</td></tr>` : ""}
+    </table>
+    <p style="font-size:12px;color:#6b7280;margin-top:16px">Occupational diseases are reportable to the Compensation Fund under Section 65 of the Compensation for Occupational Injuries and Diseases Act (COIDA) No. 130 of 1993. The employer must report within 12 months of diagnosis or when the employee first became unable to work.</p>
+    <div class="sig"><p>Signature: _________________________________ &nbsp;&nbsp; Date: ____________</p><p style="margin-top:6px">Occupational Health Practitioner</p></div>
+    </body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  };
+
   return (
   <div>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
       <div style={{ fontSize: 18, fontWeight: 500 }}>IOD register</div>
-      <Btn size="sm" onClick={() => { setForm(EMPTY_IOD); setShowForm(true); }}>+ Log IOD</Btn>
+      {iodTab === "injuries"
+        ? <Btn size="sm" onClick={() => { setForm(EMPTY_IOD); setShowForm(true); }}>+ Log IOD</Btn>
+        : <Btn size="sm" onClick={() => { setOccForm(EMPTY_OCC); setShowOccForm(true); }}>+ Log occupational disease</Btn>
+      }
     </div>
+
+    {/* Tab strip */}
+    <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: "1.25rem" }}>
+      {[["injuries", "⚠ Injuries & near misses"], ["occ_disease", "🫁 Occupational diseases"]].map(([id, label]) => (
+        <button key={id} onClick={() => setIodTab(id)} style={{ padding: "8px 16px", background: "none", border: "none", borderBottom: iodTab === id ? `2px solid ${C.teal}` : "2px solid transparent", color: iodTab === id ? C.teal : C.muted, fontSize: 13, fontWeight: iodTab === id ? 600 : 400, cursor: "pointer", marginBottom: -1 }}>
+          {label}
+        </button>
+      ))}
+    </div>
+
+    {/* ── OCCUPATIONAL DISEASE TAB ─────────────────────────────────────────── */}
+    {iodTab === "occ_disease" && (
+      <div>
+        {showOccForm && (
+          <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
+            <SectionTitle>Log occupational disease</SectionTitle>
+            <div style={{ background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 7, padding: "0.75rem 1rem", marginBottom: 12, fontSize: 12, color: "#92400e" }}>
+              <strong>COIDA reporting:</strong> Occupational diseases are reportable under Section 65 of COIDA within 12 months of diagnosis. Submit a W.Cl.4 (medical report) to the Compensation Fund, RMA, or FEM. The employer must also submit a W.Cl.2 (employer report).
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={labelStyle}>Employee *</label>
+                <select style={inputStyle} value={occForm.person_id} onChange={e => {
+                  const person = persons.find(p => p.id === e.target.value);
+                  setOccForm(f => ({ ...f, person_id: e.target.value, employer_id: person?.employer_id || f.employer_id }));
+                }}>
+                  <option value="">Select employee...</option>
+                  {persons.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {employers.find(e => e.id === p.employer_id)?.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Disease / condition *</label>
+                <select style={inputStyle} value={occForm.disease_type} onChange={e => setOccForm(f => ({...f, disease_type: e.target.value}))}>
+                  <option value="">Select...</option>
+                  {OCC_DISEASES.map(d => <option key={d}>{d}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Hazard agent / exposure</label>
+                <input style={inputStyle} value={occForm.hazard_agent} onChange={e => setOccForm(f => ({...f, hazard_agent: e.target.value}))} placeholder="e.g. Cotton dust, noise >85dB, silica" />
+              </div>
+              <div>
+                <label style={labelStyle}>Years of exposure</label>
+                <input style={inputStyle} type="number" min="0" step="0.5" value={occForm.exposure_years} onChange={e => setOccForm(f => ({...f, exposure_years: e.target.value}))} placeholder="e.g. 8" />
+              </div>
+              <div>
+                <label style={labelStyle}>Symptom onset date</label>
+                <input style={inputStyle} type="date" value={occForm.onset_date} onChange={e => setOccForm(f => ({...f, onset_date: e.target.value}))} />
+              </div>
+              <div>
+                <label style={labelStyle}>Date of diagnosis</label>
+                <input style={inputStyle} type="date" value={occForm.diagnosis_date} onChange={e => setOccForm(f => ({...f, diagnosis_date: e.target.value}))} />
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={labelStyle}>Symptoms</label>
+                <textarea style={{ ...inputStyle, resize: "vertical" }} rows={2} value={occForm.symptoms} onChange={e => setOccForm(f => ({...f, symptoms: e.target.value}))} placeholder="e.g. Progressive bilateral hearing loss, tinnitus..." />
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={labelStyle}>Diagnosis summary</label>
+                <textarea style={{ ...inputStyle, resize: "vertical" }} rows={2} value={occForm.diagnosis} onChange={e => setOccForm(f => ({...f, diagnosis: e.target.value}))} placeholder="e.g. Audiogram confirms NIHL — STS >10dB at 4kHz bilateral..." />
+              </div>
+              <div>
+                <label style={labelStyle}>Treating doctor / specialist</label>
+                <input style={inputStyle} value={occForm.treating_doctor} onChange={e => setOccForm(f => ({...f, treating_doctor: e.target.value}))} placeholder="Dr. Smith, Pulmonologist" />
+              </div>
+              <div style={{ display: "flex", gap: 16, alignItems: "center", paddingTop: 20 }}>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={occForm.reportable} onChange={e => setOccForm(f => ({...f, reportable: e.target.checked}))} />
+                  Reportable to COIDA
+                </label>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={occForm.coida_reported} onChange={e => setOccForm(f => ({...f, coida_reported: e.target.checked}))} />
+                  W.Cl.4 submitted
+                </label>
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={labelStyle}>Notes</label>
+                <textarea style={{ ...inputStyle, resize: "vertical" }} rows={2} value={occForm.notes} onChange={e => setOccForm(f => ({...f, notes: e.target.value}))} placeholder="Any additional clinical notes..." />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn onClick={() => {
+                if (!occForm.person_id || !occForm.disease_type) { alert("Employee and disease type required"); return; }
+                saveOccDiseases([{ ...occForm, id: crypto.randomUUID(), created_at: new Date().toISOString() }, ...occDiseases]);
+                setShowOccForm(false);
+                setOccForm(EMPTY_OCC);
+              }}>Save record</Btn>
+              <Btn variant="ghost" onClick={() => setShowOccForm(false)}>Cancel</Btn>
+            </div>
+          </Card>
+        )}
+
+        {occDiseases.length === 0 && !showOccForm ? (
+          <Card style={{ textAlign: "center", padding: "2.5rem" }}>
+            <div style={{ fontSize: 32, marginBottom: 10 }}>🫁</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>No occupational diseases recorded</div>
+            <div style={{ fontSize: 13, color: C.muted, maxWidth: 420, margin: "0 auto" }}>Log occupational diseases — NIHL, asthma, dermatitis, silicosis and others — as separate COIDA-reportable events from workplace injuries.</div>
+          </Card>
+        ) : occDiseases.map(rec => {
+          const person = persons.find(p => p.id === rec.person_id);
+          const employer = employers.find(e => e.id === rec.employer_id);
+          return (
+            <Card key={rec.id} style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{person ? `${person.first_name} ${person.last_name}` : "Unknown"}</span>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#fef3c7", color: "#b45309", fontWeight: 500 }}>{rec.disease_type}</span>
+                    {rec.coida_reported
+                      ? <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#E1F5EE", color: C.teal, fontWeight: 500 }}>✓ W.Cl.4 submitted</span>
+                      : rec.reportable && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#fee2e2", color: "#dc2626", fontWeight: 500 }}>⚠ Pending COIDA report</span>
+                    }
+                  </div>
+                  <div style={{ fontSize: 12, color: C.muted }}>
+                    {employer?.name} · {person?.job_title}
+                    {rec.hazard_agent && ` · Exposure: ${rec.hazard_agent}`}
+                    {rec.exposure_years && ` (${rec.exposure_years} yrs)`}
+                  </div>
+                  {rec.diagnosis && <div style={{ fontSize: 12, color: C.text, marginTop: 4 }}>{rec.diagnosis}</div>}
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+                    {rec.onset_date && `Onset: ${rec.onset_date}`}
+                    {rec.diagnosis_date && ` · Diagnosed: ${rec.diagnosis_date}`}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 10 }}>
+                  <Btn size="sm" variant="ghost" onClick={() => printOccReport(rec)}>📄 Report</Btn>
+                  {!rec.coida_reported && rec.reportable && (
+                    <Btn size="sm" variant="ghost" onClick={() => saveOccDiseases(occDiseases.map(r => r.id === rec.id ? { ...r, coida_reported: true } : r))}>Mark submitted</Btn>
+                  )}
+                  <button onClick={() => { if (window.confirm("Delete this record?")) saveOccDiseases(occDiseases.filter(r => r.id !== rec.id)); }} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border}`, background: "#fff", color: C.muted, cursor: "pointer" }}>✕</button>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    )}
+
+    {/* ── INJURIES TAB ─────────────────────────────────────────────────────── */}
+    {iodTab === "injuries" && (<div>
 
     {showForm && (
       <Card style={{ marginBottom: "1rem", border: `1px solid ${C.teal}` }}>
@@ -3237,6 +3436,7 @@ const IODRegister = () => {
         </Card>
       );
     })}
+    </div>)}
   </div>
   );
 };
