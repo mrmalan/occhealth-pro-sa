@@ -263,8 +263,10 @@ const Dashboard = ({ session, navigate }) => {
   return (
     <div>
       <div style={{ marginBottom: "1.5rem" }}>
-        <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: C.textTert, marginBottom: 4 }}>Good morning</div>
-        <div style={{ fontSize: 22, fontWeight: 500, color: C.text }}>{meta.full_name}</div>
+        <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: C.textTert, marginBottom: 4 }}>
+          {(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; })()}
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 500, color: C.text }}>{meta.practitioner_name || meta.full_name || "Occupational Health Practitioner"}</div>
         <div style={{ fontSize: 13, color: C.textSub }}>{meta.tenant_name}</div>
       </div>
 
