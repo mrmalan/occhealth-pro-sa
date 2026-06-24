@@ -7536,15 +7536,20 @@ const PregnancyRiskAssessment = ({ session }) => {
 const WellnessDay = ({ session }) => {
   const { persons, employers } = useData();
   const LS_KEY = "oh_wellness_days";
-  const [events, setEvents] = React.useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } });
-  const [showCreate, setShowCreate] = React.useState(false);
-  const [selEvent, setSelEvent] = React.useState(null);
-  const [form, setForm] = React.useState({ employer_id: "", date: "", title: "", services: [] });
-  const [screening, setScreening] = React.useState({});
+  const SC_KEY = "oh_wellness_screening";
   const SERVICES = ["Blood pressure", "BMI / weight", "Random glucose", "Cholesterol", "HIV counselling referral", "Vision screen", "Dental referral", "Mental health screen", "Flu vaccination", "COVID vaccination", "TB symptom screen", "Lifestyle advice"];
 
+  const [events, setEvents] = React.useState(() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } });
+  const [screening, setScreening] = React.useState(() => { try { return JSON.parse(localStorage.getItem(SC_KEY) || "{}"); } catch { return {}; } });
+  const [showCreate, setShowCreate] = React.useState(false);
+  const [selEvent, setSelEvent] = React.useState(null);
+  const [editMode, setEditMode] = React.useState(false);
+  const [editForm, setEditForm] = React.useState({});
+  const [form, setForm] = React.useState({ employer_id: "", date: "", title: "", services: [] });
+
   const saveEvents = items => { localStorage.setItem(LS_KEY, JSON.stringify(items)); setEvents(items); };
-  const toggleService = s => setForm(f => ({ ...f, services: f.services.includes(s) ? f.services.filter(x => x !== s) : [...f.services, s] }));
+  const saveScreening = sc => { localStorage.setItem(SC_KEY, JSON.stringify(sc)); setScreening(sc); };
+
   const createEvent = () => {
     if (!form.employer_id || !form.date) { alert("Employer and date required"); return; }
     const ev = { ...form, id: crypto.randomUUID(), registrations: [], created_at: new Date().toISOString() };
@@ -7555,32 +7560,120 @@ const WellnessDay = ({ session }) => {
     setSelEvent(ev);
   };
 
+  const saveEdit = () => {
+    const updated = events.map(ev => ev.id === selEvent.id ? { ...ev, ...editForm } : ev);
+    saveEvents(updated);
+    setSelEvent(updated.find(e => e.id === selEvent.id));
+    setEditMode(false);
+  };
+
   const registerPerson = (eventId, personId) => {
     const updated = events.map(ev => ev.id === eventId ? { ...ev, registrations: [...(ev.registrations || []).filter(r => r !== personId), personId] } : ev);
     saveEvents(updated);
     setSelEvent(updated.find(e => e.id === eventId));
   };
 
-  const saveScreeningResult = (eventId, personId, field, value) => {
+  const removePerson = (eventId, personId) => {
+    if (!window.confirm("Remove this employee from the event?")) return;
+    const updated = events.map(ev => ev.id === eventId ? { ...ev, registrations: (ev.registrations || []).filter(r => r !== personId) } : ev);
+    saveEvents(updated);
+    setSelEvent(updated.find(e => e.id === eventId));
+    const newSc = { ...screening };
+    delete newSc[`${eventId}_${personId}`];
+    saveScreening(newSc);
+  };
+
+  const updateScreening = (eventId, personId, field, value) => {
     const key = `${eventId}_${personId}`;
-    setScreening(s => ({ ...s, [key]: { ...(s[key] || {}), [field]: value } }));
+    const newSc = { ...screening, [key]: { ...(screening[key] || {}), [field]: value } };
+    saveScreening(newSc);
   };
 
   const exportWellnessCSV = (ev) => {
     const employer = employers.find(e => e.id === ev.employer_id);
-    const rows = [["Name", "Employee No", ...ev.services, "Notes"]];
+    const rows = [["Name", "Employee No", "Job Title", ...ev.services, "Notes"]];
     (ev.registrations || []).forEach(pid => {
       const p = persons.find(x => x.id === pid);
-      const key = `${ev.id}_${pid}`;
-      const sc = screening[key] || {};
-      rows.push([p ? `${p.first_name} ${p.last_name}` : pid, p?.employee_number || "", ...ev.services.map(s => sc[s] || ""), sc.notes || ""]);
+      const sc = screening[`${ev.id}_${pid}`] || {};
+      rows.push([p ? `${p.first_name} ${p.last_name}` : pid, p?.employee_number || "", p?.job_title || "", ...ev.services.map(s => sc[s] || ""), sc.notes || ""]);
     });
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}`).join(",")).join("\n");
     const a = document.createElement("a");
     a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
     a.download = `wellness-day-${ev.date}-${(employer?.name || "").replace(/[^a-z0-9]/gi,"-").toLowerCase()}.csv`;
     a.click();
   };
+
+  const printSummary = (ev) => {
+    const employer = employers.find(e => e.id === ev.employer_id);
+    const total = (ev.registrations || []).length;
+    const meta = session?.user?.user_metadata || {};
+    const serviceRows = ev.services.map(s => {
+      const results = (ev.registrations || []).map(pid => screening[`${ev.id}_${pid}`]?.[s]).filter(Boolean);
+      return `<tr><td style="padding:6px 10px;border-bottom:1px solid #f3f4f6">${s}</td><td style="padding:6px 10px;border-bottom:1px solid #f3f4f6;color:#0F6E56;font-weight:500">${results.length}/${total} recorded</td><td style="padding:6px 10px;border-bottom:1px solid #f3f4f6;color:#6b7280;font-size:12px">${results.slice(0,6).join(" | ")}</td></tr>`;
+    }).join("");
+    const empRows = (ev.registrations || []).map(pid => {
+      const p = persons.find(x => x.id === pid);
+      const sc = screening[`${ev.id}_${pid}`] || {};
+      const filled = ev.services.filter(s => sc[s]).length;
+      return `<tr><td style="padding:5px 10px;border-bottom:1px solid #f3f4f6">${p ? p.first_name + " " + p.last_name : pid}</td><td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;color:#6b7280">${p?.job_title || ""}</td><td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;color:#0F6E56">${filled}/${ev.services.length}</td><td style="padding:5px 10px;border-bottom:1px solid #f3f4f6;font-size:11px;color:#6b7280">${sc.notes || ""}</td></tr>`;
+    }).join("");
+    const w = window.open("", "_blank");
+    w.document.write(`<!DOCTYPE html><html><head><title>Wellness Day Summary</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#1a2e2a}h1{color:#04342C;font-size:18px}h2{font-size:14px;color:#0D6B6E;margin:20px 0 8px}table{width:100%;border-collapse:collapse;margin-bottom:20px}th{background:#04342C;color:#fff;padding:7px 10px;text-align:left;font-size:12px}.kpi{display:inline-block;background:#E1F5EE;border-radius:8px;padding:10px 16px;margin:0 8px 8px 0;text-align:center}.kpi-n{font-size:24px;font-weight:700;color:#0F6E56}.kpi-l{font-size:11px;color:#6b7280}.sig{margin-top:40px;border-top:1px solid #ccc;padding-top:16px;font-size:12px;color:#666}</style></head><body>
+    <h1>Wellness Day Summary Report</h1>
+    <p style="font-size:13px;color:#444">${ev.title || "Wellness Day"} &nbsp;·&nbsp; ${employer?.name || ""} &nbsp;·&nbsp; ${ev.date}</p>
+    <p style="font-size:13px;color:#444;margin-top:4px">Prepared by: ${meta.practitioner_name || meta.full_name || ""}</p>
+    <div style="margin:16px 0">
+      <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Employees attended</div></div>
+      <div class="kpi"><div class="kpi-n">${ev.services.length}</div><div class="kpi-l">Services offered</div></div>
+      <div class="kpi"><div class="kpi-n">${(ev.registrations||[]).filter(pid => ev.services.some(s => screening[ev.id+"_"+pid]?.[s])).length}</div><div class="kpi-l">With recorded results</div></div>
+    </div>
+    <h2>Service coverage</h2>
+    <table><thead><tr><th>Service</th><th>Results recorded</th><th>Sample results</th></tr></thead><tbody>${serviceRows}</tbody></table>
+    <h2>Employee register</h2>
+    <table><thead><tr><th>Name</th><th>Job title</th><th>Results</th><th>Notes / referrals</th></tr></thead><tbody>${empRows}</tbody></table>
+    <div class="sig"><p>Signature: _________________________________ &nbsp;&nbsp; Date: ____________</p><p style="margin-top:6px">${meta.practitioner_name || meta.full_name || ""}</p></div>
+    </body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  };
+
+  const FormPanel = ({ vals, setVals, onSave, onCancel, saveLabel }) => (
+    <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.teal}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Employer *</label>
+          <select value={vals.employer_id} onChange={e => setVals(f => ({...f, employer_id: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
+            <option value="">Select...</option>
+            {employers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Date *</label>
+          <input type="date" value={vals.date} onChange={e => setVals(f => ({...f, date: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+        <div style={{ gridColumn: "1/-1" }}>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Event title</label>
+          <input value={vals.title || ""} onChange={e => setVals(f => ({...f, title: e.target.value}))} placeholder="e.g. Annual Health and Wellness Day 2026" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+        <div style={{ gridColumn: "1/-1" }}>
+          <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 8 }}>Services offered</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {SERVICES.map(s => (
+              <label key={s} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+                <input type="checkbox" checked={(vals.services||[]).includes(s)} onChange={() => setVals(f => ({ ...f, services: (f.services||[]).includes(s) ? f.services.filter(x => x !== s) : [...(f.services||[]), s] }))} style={{ cursor: "pointer" }} />
+                {s}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onSave} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{saveLabel}</button>
+        <button onClick={onCancel} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  );
 
   return (
     <div>
@@ -7589,44 +7682,11 @@ const WellnessDay = ({ session }) => {
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.tealDark }}>Wellness day manager</h2>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: C.muted }}>Plan, register and capture results for employer wellness days</p>
         </div>
-        <button onClick={() => setShowCreate(v => !v)} style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Create wellness day</button>
+        {!selEvent && <button onClick={() => setShowCreate(v => !v)} style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Create wellness day</button>}
       </div>
 
-      {showCreate && (
-        <div style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.teal}`, padding: "1.25rem", marginBottom: "1.25rem" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div>
-              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Employer *</label>
-              <select value={form.employer_id} onChange={e => setForm(f => ({...f, employer_id: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", boxSizing: "border-box" }}>
-                <option value="">Select...</option>
-                {employers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Date *</label>
-              <input type="date" value={form.date} onChange={e => setForm(f => ({...f, date: e.target.value}))} style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
-            </div>
-            <div style={{ gridColumn: "1/-1" }}>
-              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 4 }}>Event title</label>
-              <input value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} placeholder="e.g. Annual Health and Wellness Day 2026" style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: "border-box" }} />
-            </div>
-            <div style={{ gridColumn: "1/-1" }}>
-              <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 8 }}>Services offered</label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                {SERVICES.map(s => (
-                  <label key={s} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
-                    <input type="checkbox" checked={form.services.includes(s)} onChange={() => toggleService(s)} style={{ cursor: "pointer" }} />
-                    {s}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={createEvent} style={{ padding: "8px 16px", borderRadius: 7, border: "none", background: C.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Create event</button>
-            <button onClick={() => setShowCreate(false)} style={{ padding: "8px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-          </div>
-        </div>
+      {showCreate && !selEvent && (
+        <FormPanel vals={form} setVals={setForm} onSave={createEvent} onCancel={() => setShowCreate(false)} saveLabel="Create event" />
       )}
 
       {!selEvent ? (
@@ -7639,7 +7699,7 @@ const WellnessDay = ({ session }) => {
         ) : events.map(ev => {
           const employer = employers.find(e => e.id === ev.employer_id);
           return (
-            <div key={ev.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "1rem", marginBottom: 8, cursor: "pointer" }} onClick={() => setSelEvent(ev)}>
+            <div key={ev.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "1rem", marginBottom: 8, cursor: "pointer" }} onClick={() => { setSelEvent(ev); setEditMode(false); }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{ev.title || "Wellness Day"} — {ev.date}</div>
@@ -7652,46 +7712,84 @@ const WellnessDay = ({ session }) => {
         })
       ) : (
         <div>
-          <button onClick={() => setSelEvent(null)} style={{ fontSize: 13, color: C.teal, background: "none", border: "none", cursor: "pointer", marginBottom: "1rem" }}>← Back to events</button>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>{selEvent.title || "Wellness Day"}</div>
-              <div style={{ fontSize: 13, color: C.muted }}>{employers.find(e => e.id === selEvent.employer_id)?.name} · {selEvent.date}</div>
-            </div>
-            <button onClick={() => exportWellnessCSV(selEvent)} style={{ padding: "7px 14px", borderRadius: 7, border: `1px solid ${C.teal}`, background: "#fff", color: C.teal, fontSize: 12, cursor: "pointer" }}>Export CSV</button>
-          </div>
-          <div style={{ marginBottom: "1rem" }}>
-            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>Register employee</div>
-            <select onChange={e => { if (e.target.value) { registerPerson(selEvent.id, e.target.value); e.target.value = ""; } }} style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", minWidth: 240 }}>
-              <option value="">Select employee to register...</option>
-              {persons.filter(p => !(selEvent.registrations || []).includes(p.id)).map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-            </select>
-          </div>
-          {(selEvent.registrations || []).length === 0 ? (
-            <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "2rem" }}>No employees registered yet</div>
-          ) : (selEvent.registrations || []).map(pid => {
-            const person = persons.find(p => p.id === pid);
-            const key = `${selEvent.id}_${pid}`;
-            return (
-              <div key={pid} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "0.875rem 1rem", marginBottom: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>{person ? `${person.first_name} ${person.last_name}` : pid}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6 }}>
-                  {selEvent.services.map(s => (
-                    <div key={s}>
-                      <label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 2 }}>{s}</label>
-                      <input value={screening[key]?.[s] || ""} onChange={e => saveScreeningResult(selEvent.id, pid, s, e.target.value)} placeholder="Result" style={{ width: "100%", padding: "5px 7px", borderRadius: 5, border: `1px solid ${C.border}`, fontSize: 12, boxSizing: "border-box" }} />
+          <button onClick={() => { setSelEvent(null); setEditMode(false); }} style={{ fontSize: 13, color: C.teal, background: "none", border: "none", cursor: "pointer", marginBottom: "1rem" }}>← Back to events</button>
+
+          {editMode ? (
+            <FormPanel vals={editForm} setVals={setEditForm} onSave={saveEdit} onCancel={() => setEditMode(false)} saveLabel="Save changes" />
+          ) : (
+            <>
+              <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "1rem 1.25rem", marginBottom: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 600 }}>{selEvent.title || "Wellness Day"}</div>
+                    <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>{employers.find(e => e.id === selEvent.employer_id)?.name} · {selEvent.date}</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      {selEvent.services.map(s => <span key={s} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#E1F5EE", color: "#085041" }}>{s}</span>)}
                     </div>
-                  ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 12 }}>
+                    <button onClick={() => { setEditForm({ employer_id: selEvent.employer_id, date: selEvent.date, title: selEvent.title, services: [...selEvent.services] }); setEditMode(true); }} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, cursor: "pointer" }}>✏️ Edit</button>
+                    <button onClick={() => printSummary(selEvent)} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12, cursor: "pointer" }}>📄 Summary</button>
+                    <button onClick={() => exportWellnessCSV(selEvent)} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.teal}`, background: "#fff", color: C.teal, fontSize: 12, cursor: "pointer" }}>⬇ CSV</button>
+                  </div>
                 </div>
               </div>
-            );
-          })}
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: "1rem" }}>
+                {[["Registered", (selEvent.registrations||[]).length], ["Services", selEvent.services.length], ["With results", (selEvent.registrations||[]).filter(pid => selEvent.services.some(s => screening[selEvent.id+"_"+pid]?.[s])).length]].map(([label, val]) => (
+                  <div key={label} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "0.75rem", textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 600, color: C.teal }}>{val}</div>
+                    <div style={{ fontSize: 11, color: C.muted }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: "1rem" }}>
+                <label style={{ fontSize: 12, color: C.muted, display: "block", marginBottom: 6 }}>Register employee</label>
+                <select onChange={e => { if (e.target.value) { registerPerson(selEvent.id, e.target.value); e.target.value = ""; } }} style={{ padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff", minWidth: 260 }}>
+                  <option value="">Select employee to register...</option>
+                  {persons.filter(p => !(selEvent.registrations || []).includes(p.id)).map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {p.job_title}</option>)}
+                </select>
+              </div>
+
+              {(selEvent.registrations || []).length === 0 ? (
+                <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "2rem" }}>No employees registered yet</div>
+              ) : (selEvent.registrations || []).map(pid => {
+                const person = persons.find(p => p.id === pid);
+                const key = `${selEvent.id}_${pid}`;
+                const sc = screening[key] || {};
+                const filled = selEvent.services.filter(s => sc[s]).length;
+                return (
+                  <div key={pid} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, padding: "1rem", marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{person ? `${person.first_name} ${person.last_name}` : pid}</div>
+                        <div style={{ fontSize: 11, color: C.muted }}>{person?.job_title} · {filled}/{selEvent.services.length} results recorded</div>
+                      </div>
+                      <button onClick={() => removePerson(selEvent.id, pid)} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", color: C.muted, cursor: "pointer" }}>✕ Remove</button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6, marginBottom: 6 }}>
+                      {selEvent.services.map(s => (
+                        <div key={s}>
+                          <label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 2 }}>{s}</label>
+                          <input value={sc[s] || ""} onChange={e => updateScreening(selEvent.id, pid, s, e.target.value)} placeholder="Result" style={{ width: "100%", padding: "5px 7px", borderRadius: 5, border: `1px solid ${sc[s] ? C.teal : C.border}`, fontSize: 12, boxSizing: "border-box" }} />
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 2 }}>Notes / referrals</label>
+                      <input value={sc.notes || ""} onChange={e => updateScreening(selEvent.id, pid, "notes", e.target.value)} placeholder="e.g. Referred to GP for elevated BP" style={{ width: "100%", padding: "5px 7px", borderRadius: 5, border: `1px solid ${C.border}`, fontSize: 12, boxSizing: "border-box" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       )}
     </div>
   );
 };
-
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV_OHP_GROUPS = [
   {
