@@ -1,5 +1,40 @@
 import React, { useState, useEffect, useRef, useMemo, createContext, useContext } from "react";
 
+// ─── DOCUMENT LOG HELPERS ────────────────────────────────────────────────────
+async function saveDocLog(token, entry) {
+  if (!token || !entry.storage_path) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/document_log`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify(entry),
+    });
+  } catch(e) { console.warn("saveDocLog failed:", e); }
+}
+
+async function fetchDocLog(token, entityId) {
+  if (!token || !entityId) return [];
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/document_log?entity_id=eq.${entityId}&order=generated_at.desc`, {
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}` },
+    });
+    return res.ok ? await res.json() : [];
+  } catch(e) { return []; }
+}
+
+async function getDocUrl(storagePath) {
+  try {
+    const res = await fetch("/.netlify/functions/doc-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: storagePath }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.url;
+  } catch(e) { return null; }
+}
+
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "YOUR_PROJECT";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON || "YOUR_ANON_KEY";
@@ -2772,8 +2807,10 @@ const FitnessCerts = () => {
 };
 
 
-const IODRegister = () => {
+const IODRegister = ({ session }) => {
   const { persons, employers, db, refreshData } = useData();
+  const token = session?.access_token;
+  const meta = session?.user?.user_metadata || {};
   const [generatingId, setGeneratingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2971,10 +3008,22 @@ const IODRegister = () => {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("PDF generation failed");
+      const storagePath = res.headers.get("X-Storage-Path");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+      if (storagePath && token) {
+        const person = persons.find(p => p.id === iod.person_id);
+        await saveDocLog(token, {
+          entity_type: "iod_incident", entity_id: iod.id,
+          doc_type: "wcl2",
+          doc_label: `W.Cl.2 — ${person ? person.first_name + " " + person.last_name : ""} — ${payload.incident_date}`,
+          storage_path: storagePath,
+          generated_by: meta.practitioner_name || meta.full_name || "",
+          person_id: iod.person_id, employer_id: iod.employer_id,
+        });
+      }
     } catch(e) {
       alert("Failed to generate W.Cl.2: " + e.message);
     }
@@ -3331,6 +3380,7 @@ const IODRegister = () => {
             </div>
           )}
 
+          <DocLogPanel entityId={iod.id} session={session} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Btn size="sm" variant="ghost" onClick={() => generateWCL2(iod)} disabled={generatingId === iod.id + "_wcl2"}>
               {generatingId === iod.id + "_wcl2" ? "Generating..." : "Generate W.Cl.2"}
@@ -3395,6 +3445,17 @@ const IODRegister = () => {
                 const url = URL.createObjectURL(blob);
                 window.open(url, "_blank");
                 setTimeout(() => URL.revokeObjectURL(url), 60000);
+                const storagePath = res.headers.get("X-Storage-Path");
+                if (storagePath && token) {
+                  await saveDocLog(token, {
+                    entity_type: "iod_incident", entity_id: iod.id,
+                    doc_type: "wcl4",
+                    doc_label: `W.Cl.4 — ${person ? person.first_name + " " + person.last_name : ""} — ${incidentDate.toISOString().slice(0,10)}`,
+                    storage_path: storagePath,
+                    generated_by: meta.practitioner_name || meta.full_name || "",
+                    person_id: iod.person_id, employer_id: iod.employer_id,
+                  });
+                }
               } catch(e) { alert("Failed to generate W.Cl.4: " + e.message); }
               setGeneratingId(null);
             }} disabled={generatingId === iod.id + "_wcl4"}>
@@ -7991,6 +8052,53 @@ const WellnessDay = ({ session }) => {
   );
 };
 
+
+// ─── DOCUMENT LOG PANEL ──────────────────────────────────────────────────────
+const DocLogPanel = ({ entityId, session }) => {
+  const [docs, setDocs] = React.useState([]);
+  const [loaded, setLoaded] = React.useState(false);
+  const [dlId, setDlId] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!entityId || !session?.access_token) { setLoaded(true); return; }
+    fetchDocLog(session.access_token, entityId).then(d => { setDocs(d); setLoaded(true); });
+  }, [entityId]);
+
+  const TYPE_LABEL = { wcl2: "W.Cl.2 Employer Report", wcl4: "W.Cl.4 Medical Report", covering_letter: "COIDA Covering Letter", drug_test_cert: "Drug Test Certificate", fitness_cert: "Fitness Certificate" };
+
+  const download = async (doc) => {
+    setDlId(doc.id);
+    const url = await getDocUrl(doc.storage_path);
+    if (url) window.open(url, "_blank");
+    else alert("Download failed — please regenerate the document.");
+    setDlId(null);
+  };
+
+  if (!loaded || docs.length === 0) return (
+    <div style={{ fontSize: 11, color: C.muted, fontStyle: "italic", margin: "6px 0" }}>
+      {!loaded ? "Loading..." : "No documents saved yet — generate W.Cl.2 / W.Cl.4 to save them here."}
+    </div>
+  );
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5 }}>Saved documents</div>
+      {docs.map(doc => (
+        <div key={doc.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 10px", background: C.bgSub, borderRadius: 6, marginBottom: 3 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 500 }}>{doc.doc_label || TYPE_LABEL[doc.doc_type] || doc.doc_type}</div>
+            <div style={{ fontSize: 11, color: C.muted }}>{new Date(doc.generated_at).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })} · {doc.generated_by}</div>
+          </div>
+          <button onClick={() => download(doc)} disabled={dlId === doc.id}
+            style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: `1px solid ${C.teal}`, background: "#fff", color: C.teal, cursor: dlId === doc.id ? "wait" : "pointer" }}>
+            {dlId === doc.id ? "..." : "↓ Open"}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ─── SASOHN HUB ──────────────────────────────────────────────────────────────
 const CATEGORY_META = {
   cpd_event:    { label: "CPD Event",      color: "#0F6E56", bg: "#E1F5EE" },
@@ -8650,7 +8758,7 @@ export default function App() {
               {screen === "encounters"   && <Encounters navigate={navigate} session={session} />}
               {screen === "surveillance" && <Surveillance />}
               {screen === "fitness"      && <FitnessCerts />}
-              {screen === "iod"          && <IODRegister />}
+              {screen === "iod"          && <IODRegister session={session} />}
               {screen === "drug"         && <DrugTesting />}
               {screen === "stock"        && <StockCalibration />}
               {screen === "portal"       && <EmployerPortal session={session} />}

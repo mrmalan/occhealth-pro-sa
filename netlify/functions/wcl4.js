@@ -225,21 +225,31 @@ async function generateWCL4(data) {
   });
 }
 
+import { uploadDoc } from "./_upload_doc.js";
+
 export async function handler(event) {
-  if (event.httpMethod !== "POST") return { statusCode:405, body:"Method Not Allowed" };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
   try {
     const data = JSON.parse(event.body);
-    const pdf = await generateWCL4(data);
+    const pdfBuffer = await generateWCL4(data);
+    const dateStr = (data.incident_date).replace(/-/g,"");
+    const nameStr = (data.person_last_name || "unknown").slice(0,12).replace(/[^a-z0-9]/gi,"-");
+    const filename = `WCl4-${dateStr}-${nameStr}.pdf`;
+    const storagePath = await uploadDoc(pdfBuffer, "wcl4", filename);
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="WCl4-${(data.incident_date||"").replace(/-/g,"").slice(0,8)}-${(data.person_last_name||"").slice(0,10)}.pdf"`,
+        "Content-Disposition": `inline; filename="${filename}"`,
+        ...(storagePath ? { "X-Storage-Path": storagePath } : {}),
       },
-      body: pdf.toString("base64"),
+      body: pdfBuffer.toString("base64"),
       isBase64Encoded: true,
     };
-  } catch(err) {
-    return { statusCode:500, body: JSON.stringify({ error: err.message }) };
+  } catch (err) {
+    console.error("W.Cl.4 error:", err);
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 }

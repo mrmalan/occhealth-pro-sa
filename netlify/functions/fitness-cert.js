@@ -150,21 +150,31 @@ async function generateCert(data) {
   });
 }
 
+import { uploadDoc } from "./_upload_doc.js";
+
 export async function handler(event) {
-  if (event.httpMethod !== "POST") return { statusCode:405, body:"Method Not Allowed" };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
   try {
     const data = JSON.parse(event.body);
-    const pdf = await generateCert(data);
+    const pdfBuffer = await generateCert(data);
+    const dateStr = (data.valid_from || new Date().toISOString().slice(0,10)).replace(/-/g,"");
+    const nameStr = (data.person_last_name || data.employee_last_name || "unknown").slice(0,12).replace(/[^a-z0-9]/gi,"-");
+    const filename = `FitnessCert-${dateStr}-${nameStr}.pdf`;
+    const storagePath = await uploadDoc(pdfBuffer, "fitness_cert", filename);
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="fitness-cert-${(data.cert_id||"cert").slice(0,8)}.pdf"`,
+        "Content-Disposition": `inline; filename="${filename}"`,
+        ...(storagePath ? { "X-Storage-Path": storagePath } : {}),
       },
-      body: pdf.toString("base64"),
+      body: pdfBuffer.toString("base64"),
       isBase64Encoded: true,
     };
-  } catch(err) {
-    return { statusCode:500, body: JSON.stringify({ error: err.message }) };
+  } catch (err) {
+    console.error("Fitness cert error:", err);
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 }

@@ -217,6 +217,8 @@ async function generateDrugTestCert(data) {
   });
 }
 
+import { uploadDoc } from "./_upload_doc.js";
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
@@ -224,11 +226,16 @@ export async function handler(event) {
   try {
     const data = JSON.parse(event.body);
     const pdfBuffer = await generateDrugTestCert(data);
+    const dateStr = (data.tested_at ? data.tested_at.slice(0,10) : new Date().toISOString().slice(0,10)).replace(/-/g,"");
+    const nameStr = (data.employee_last_name || data.person_last_name || "unknown").slice(0,12).replace(/[^a-z0-9]/gi,"-");
+    const filename = `DrugTest-${dateStr}-${nameStr}.pdf`;
+    const storagePath = await uploadDoc(pdfBuffer, "drug_test", filename);
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="DrugTest-${(data.tested_at || "").replace(/-/g,"").slice(0,8)}-${(data.person_last_name || "").slice(0,10)}.pdf"`,
+        "Content-Disposition": `inline; filename="${filename}"`,
+        ...(storagePath ? { "X-Storage-Path": storagePath } : {}),
       },
       body: pdfBuffer.toString("base64"),
       isBase64Encoded: true,

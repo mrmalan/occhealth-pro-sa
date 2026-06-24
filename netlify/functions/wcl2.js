@@ -220,6 +220,8 @@ async function generateWCL2(data) {
   });
 }
 
+import { uploadDoc } from "./_upload_doc.js";
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
@@ -227,11 +229,14 @@ export async function handler(event) {
   try {
     const data = JSON.parse(event.body);
     const pdfBuffer = await generateWCL2(data);
+    const filename = `WCl2-${(data.incident_date || new Date().toISOString().slice(0,10)).replace(/-/g,"")}-${(data.person_last_name || "unknown").slice(0,12).replace(/[^a-z0-9]/gi,"-")}.pdf`;
+    const storagePath = await uploadDoc(pdfBuffer, "wcl2", filename);
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="WCl2-${(data.incident_date || "").replace(/-/g,"")}-${(data.person_last_name || "").slice(0,10)}.pdf"`,
+        "Content-Disposition": `inline; filename="${filename}"`,
+        ...(storagePath ? { "X-Storage-Path": storagePath } : {}),
       },
       body: pdfBuffer.toString("base64"),
       isBase64Encoded: true,
