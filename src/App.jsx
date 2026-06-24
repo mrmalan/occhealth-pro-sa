@@ -7767,12 +7767,19 @@ const Sidebar = ({ screen, setScreen, session, onLogout, view, isCPDFree, onUpgr
   const toggleGroup = (id) => {
     // Never collapse the group containing the active screen
     if (id === activeGroup) return;
-    setCollapsed(c => ({ ...c, [id]: !c[id] }));
+    setCollapsed(c => {
+      const next = { ...c, [id]: !c[id] };
+      return next;
+    });
   };
 
-  // Ensure active group is always open when screen changes
+  // When active group changes, ensure it is open — without touching other groups
+  const prevActiveGroup = React.useRef(activeGroup);
   React.useEffect(() => {
-    setCollapsed(c => ({ ...c, [activeGroup]: false }));
+    if (prevActiveGroup.current !== activeGroup) {
+      prevActiveGroup.current = activeGroup;
+      setCollapsed(c => c[activeGroup] ? { ...c, [activeGroup]: false } : c);
+    }
   }, [activeGroup]);
 
   if (view === "employer") {
@@ -7843,11 +7850,9 @@ const Sidebar = ({ screen, setScreen, session, onLogout, view, isCPDFree, onUpgr
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: isActive ? "#5DCAA5" : "rgba(159,225,203,0.5)" }}>
                   {group.label}
                 </span>
-                {!isActive && (
-                  <span style={{ fontSize: 10, color: "rgba(159,225,203,0.4)", lineHeight: 1 }}>
-                    {isCollapsed ? "▸" : "▾"}
-                  </span>
-                )}
+                <span style={{ fontSize: 10, color: isActive ? "rgba(159,225,203,0.2)" : "rgba(159,225,203,0.5)", lineHeight: 1 }}>
+                  {isCollapsed ? "▸" : "▾"}
+                </span>
               </div>
 
               {/* Group items */}
